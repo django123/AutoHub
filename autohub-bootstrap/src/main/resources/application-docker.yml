@@ -1,0 +1,5 @@
+# Profil active quand l'application tourne dans docker-compose.
+# Le hostname "postgres" est le nom du service dans le reseau Compose.
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres:5432/autohub

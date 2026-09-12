@@ -1,0 +1,58 @@
+# =====================================================================
+# Environnement de developpement local
+# =====================================================================
+# Lancement : docker compose up -d
+# Arret     : docker compose down
+# Remise a zero complete (supprime les donnees) : docker compose down -v
+# =====================================================================
+
+services:
+
+  postgres:
+    # Version epinglee : jamais "latest". Une image qui change sous les pieds
+    # produit des builds non reproductibles et des bugs impossibles a rejouer.
+    image: postgres:16-alpine
+    container_name: autohub-postgres
+    environment:
+      POSTGRES_DB: autohub
+      POSTGRES_USER: autohub
+      POSTGRES_PASSWORD: autohub   # local uniquement -- jamais en production
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Sans healthcheck, l'application demarre avant que Postgres n'accepte
+      # les connexions et echoue au premier lancement. Le "depends_on:
+      # condition: service_healthy" ci-dessous s'appuie sur cette sonde.
+      test: ["CMD-SHELL", "pg_isready -U autohub -d autohub"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  prometheus:
+    # Present des la phase 0 pour que la phase 5 n'ait rien a installer.
+    # Il scrute /actuator/prometheus ; tant qu'aucune metrique metier n'existe,
+    # il collecte simplement les metriques JVM par defaut.
+    image: prom/prometheus:v2.54.1
+    container_name: autohub-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    profiles: ["observability"]   # docker compose --profile observability up
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: autohub-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    depends_on:
+      - prometheus
+    profiles: ["observability"]
+
+volumes:
+  postgres-data:

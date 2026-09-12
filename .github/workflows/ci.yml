@@ -1,0 +1,40 @@
+# =====================================================================
+# Integration continue
+# =====================================================================
+# Objectif du week-end 1 : avoir une CI verte AVANT d'avoir du code metier.
+# Une CI ajoutee apres coup demarre rouge, et on prend l'habitude de l'ignorer.
+# =====================================================================
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Les runners GitHub fournissent Docker : Testcontainers fonctionne
+    # sans configuration supplementaire.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurer JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven   # met en cache ~/.m2, divise le temps de build par trois
+
+      - name: Build et tests
+        # "verify" et non "package" : verify execute aussi les tests
+        # d'integration lies a la phase failsafe.
+        run: mvn -B verify
+
+      - name: Publier les rapports de test
+        if: always()   # meme si le build echoue -- c'est justement la qu'on en a besoin
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapports-tests
+          path: '**/target/surefire-reports/*.xml'

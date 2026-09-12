@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.ocarius</groupId>
+        <artifactId>autohub-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>autohub-domain</artifactId>
+    <name>AutoHub :: Domain</name>
+
+    <!--
+      ============================================================
+      CE POM EST LE COEUR DE LA DEMONSTRATION
+      ============================================================
+      Regarde la section <dependencies> ci-dessous : elle est VIDE.
+
+      Zero Spring. Zero JPA. Zero Jackson. Zero Lombok.
+      Uniquement la bibliotheque standard Java.
+
+      Consequences concretes :
+        - Le domaine compile en moins d'une seconde
+        - Ses tests s'executent en millisecondes (aucun contexte a demarrer)
+        - Il est portable : reutilisable dans une app Quarkus, un batch,
+          une Lambda, sans rien changer
+        - Aucune decision technique ne peut "fuir" dans les regles metier
+
+      Si un jour tu ajoutes une dependance ici, demande-toi trois fois
+      pourquoi. La reponse est presque toujours : "parce que je melange
+      une preoccupation technique avec du metier".
+
+      Seules exceptions : JUnit et AssertJ, herites du parent en scope test.
+      ============================================================
+    -->
+    <dependencies>
+        <!-- Volontairement vide. Voir le commentaire ci-dessus. -->
+    </dependencies>
+</project>

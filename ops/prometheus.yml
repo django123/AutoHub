@@ -1,0 +1,12 @@
+# Configuration minimale de Prometheus.
+# scrape_interval de 15s : suffisant en developpement, a affiner en production.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: autohub
+    metrics_path: /actuator/prometheus
+    static_configs:
+      # host.docker.internal permet au conteneur Prometheus de joindre
+      # l'application lancee sur la machine hote (via l'IDE ou mvn spring-boot:run).
+      - targets: ["host.docker.internal:8080"]
