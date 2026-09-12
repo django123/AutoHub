@@ -104,10 +104,27 @@ public record Money(BigDecimal amount, Currency currency) implements Comparable<
     /**
      * Applique un pourcentage de remise.
      * {@code Money.euros("100").minusPercent(new BigDecimal("20"))} donne 80,00 EUR.
+     *
+     * <h3>Pourquoi la division n'a besoin ni d'echelle ni de mode d'arrondi</h3>
+     * {@code BigDecimal.divide(x)} ne leve {@code ArithmeticException} que si le
+     * quotient exact n'a pas de representation decimale finie. Or diviser par 100
+     * revient a decaler la virgule de deux rangs : le resultat termine toujours en
+     * base 10. Une echelle intermediaire n'eviterait donc aucune exception ; elle
+     * ne ferait qu'ajouter un arrondi dont personne n'a besoin.
+     *
+     * <h3>L'arrondi qui compte, lui, est ailleurs</h3>
+     * Le constructeur compact ramene le resultat a l'echelle de la devise. C'est
+     * voulu -- c'est ce qui fait marcher {@code equals} (point 3 de la javadoc de
+     * classe) -- mais cela a une consequence a connaitre avant le week-end 8 :
+     * enchainer deux remises de 10 % n'equivaut PAS a une remise unique de 19 %,
+     * parce qu'on arrondit au centime a chaque maillon. Ce n'est pas un defaut de
+     * {@code Money} : c'est une contrainte que la chaine de {@code PricingPolicy}
+     * devra assumer explicitement. Voir
+     * {@code MoneyTest.Operations.enchainer_des_remises_arrondit_a_chaque_etape}.
      */
     public Money minusPercent(BigDecimal percent) {
         BigDecimal keptRatio = BigDecimal.ONE.subtract(
-                percent.divide(BigDecimal.valueOf(100), 10, RoundingMode.HALF_UP));
+                percent.divide(BigDecimal.valueOf(100)));
         return times(keptRatio);
     }
 

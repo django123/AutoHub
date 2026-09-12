@@ -86,6 +86,32 @@ class MoneyTest {
         }
 
         @Test
+        @DisplayName("enchainer deux remises n'equivaut pas a la remise unique correspondante")
+        void enchainer_des_remises_arrondit_a_chaque_etape() {
+            // Mathematiquement, 0,9 x 0,9 = 0,81 : deux remises de 10 % devraient
+            // donner exactement le meme resultat qu'une remise unique de 19 %.
+            // Ce n'est pas le cas, parce que le constructeur de Money ramene chaque
+            // resultat intermediaire a l'echelle de la devise. On arrondit donc au
+            // centime a CHAQUE maillon de la chaine.
+            //
+            // Ce test ne denonce pas un bug : il FIGE le comportement, pour que la
+            // conception de PricingPolicy au week-end 8 se fasse en connaissance de
+            // cause plutot que de le decouvrir sur une facture.
+            Money base = Money.euros("100.03");
+
+            Money enChaine = base
+                    .minusPercent(new BigDecimal("10"))
+                    .minusPercent(new BigDecimal("10"));
+            Money remiseUnique = base.minusPercent(new BigDecimal("19"));
+
+            assertThat(enChaine)
+                    .as("l'arrondi intermediaire fait diverger les deux chemins d'un centime")
+                    .isEqualTo(Money.euros("81.03"))
+                    .isNotEqualTo(remiseUnique);
+            assertThat(remiseUnique).isEqualTo(Money.euros("81.02"));
+        }
+
+        @Test
         @DisplayName("les operations ne modifient jamais les operandes")
         void immuabilite() {
             Money original = Money.euros("100.00");
