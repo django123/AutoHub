@@ -3,6 +3,7 @@ package com.ocarius.autohub;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -41,6 +42,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
+// Spring Boot DESACTIVE l'export de metriques dans les tests : sans cela, chaque
+// @SpringBootTest du projet demarrerait des exporteurs dont il n'a que faire.
+// La consequence est deroutante quand on ne la connait pas : /actuator/prometheus
+// repond 200 quand on lance l'application, et 404 sous @SpringBootTest, a
+// configuration et classpath rigoureusement identiques. Cette annotation reactive
+// l'export, pour ce test qui veut precisement le verifier.
+@AutoConfigureObservability
 class ApplicationSmokeTest {
 
     /**
@@ -102,5 +110,41 @@ class ApplicationSmokeTest {
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getBody()).contains("UP");
+    }
+
+    @Test
+    @DisplayName("Une route inconnue repond 404, pas 500")
+    void route_inconnue_repond_404() {
+        // Regression : tant que GlobalExceptionHandler n'etendait pas
+        // ResponseEntityExceptionHandler, son @ExceptionHandler(Exception.class)
+        // interceptait la NoResourceFoundException levee par Spring MVC -- qui
+        // porte pourtant deja son statut 404 -- et la renvoyait en 500, avec une
+        // pile d'appels journalisee en niveau ERROR. Au week-end 6, la meme
+        // mecanique aurait transforme les erreurs de validation en 500 opaques.
+        ResponseEntity<String> response =
+                restTemplate.getForEntity("http://localhost:" + port + "/route/inexistante", String.class);
+
+        assertThat(response.getStatusCode().value())
+                .as("Spring doit garder la main sur ses propres exceptions")
+                .isEqualTo(404);
+    }
+
+    @Test
+    @DisplayName("L'endpoint Prometheus expose reellement des metriques")
+    void actuator_prometheus_expose_des_metriques() {
+        // Regression : application.yml annoncait "prometheus" dans sa liste
+        // d'exposition et ops/prometheus.yml le scrutait toutes les 15 secondes,
+        // mais aucun registre Micrometer n'etait declare -- l'endpoint n'existait
+        // pas. Une configuration qui promet ce qu'elle ne fournit pas ne se voit
+        // qu'en executant l'application ; ce test la rend visible au build.
+        ResponseEntity<String> response =
+                restTemplate.getForEntity("http://localhost:" + port + "/actuator/prometheus", String.class);
+
+        assertThat(response.getStatusCode().value())
+                .as("reponse recue : %s", response.getBody())
+                .isEqualTo(200);
+        assertThat(response.getBody())
+                .as("le tag application vient de management.metrics.tags dans application.yml")
+                .contains("application=\"autohub\"");
     }
 }

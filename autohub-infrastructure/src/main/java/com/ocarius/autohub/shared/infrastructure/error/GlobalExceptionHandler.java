@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import java.net.URI;
 import java.time.Instant;
@@ -39,7 +40,7 @@ import java.time.Instant;
  * susceptible d'etre reformule ou traduit.
  */
 @RestControllerAdvice
-public class GlobalExceptionHandler {
+public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
     private static final String ERROR_BASE_URI = "https://autohub.ocarius.com/errors/";
@@ -74,6 +75,26 @@ public class GlobalExceptionHandler {
      * Un message d'erreur technique fuit volontiers des noms de tables, des
      * chemins de fichiers ou des versions de composants -- autant de cadeaux
      * pour un attaquant.
+     *
+     * <h3>Pourquoi cette classe etend ResponseEntityExceptionHandler</h3>
+     * Sans cet heritage, le {@code @ExceptionHandler(Exception.class)} ci-dessous
+     * est le seul candidat pour TOUTES les exceptions, y compris celles que Spring
+     * MVC leve lui-meme et qui portent deja leur propre statut :
+     * {@code NoResourceFoundException} (404 sur une route inconnue),
+     * {@code MethodArgumentNotValidException} (400 sur une validation refusee),
+     * {@code HttpMessageNotReadableException} (400 sur un JSON malforme}...
+     *
+     * <p>Constate en executant l'application : un GET sur une route inexistante
+     * renvoyait {@code 500 "Une erreur interne est survenue"} au lieu d'un 404, et
+     * journalisait une pile d'appels en niveau ERROR -- exactement le "crier au
+     * loup" que le commentaire de {@link #handleDomainException} met en garde.
+     *
+     * <p>{@code ResponseEntityExceptionHandler} fournit un handler dedie pour
+     * chacune de ces exceptions. Spring choisissant toujours le handler le PLUS
+     * SPECIFIQUE, elles cessent de tomber ici -- et ce filet ne rattrape plus que
+     * ce qui est reellement imprevu. Nos propres handlers restent prioritaires
+     * pour la meme raison : {@code DomainException} est plus specifique
+     * qu'{@code Exception}.
      */
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpected(Exception exception) {

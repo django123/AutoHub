@@ -18,7 +18,18 @@ services:
       POSTGRES_USER: autohub
       POSTGRES_PASSWORD: autohub   # local uniquement -- jamais en production
     ports:
-      - "5432:5432"
+      # 15432 cote hote, et non 5432. Raison : Windows autorise deux sockets a
+      # ecouter le meme port tant qu'aucune ne pose SO_EXCLUSIVEADDRUSE -- ce que
+      # PostgreSQL ne fait pas. Un service postgresql-x64-16 natif installe sur la
+      # machine cohabite donc silencieusement avec ce conteneur sur 5432, et c'est
+      # le hasard qui decide lequel recoit la connexion. Symptome observe :
+      # "authentification par mot de passe echouee pour l'utilisateur autohub"
+      # alors que `docker exec psql` fonctionne -- parce que lui n'emprunte pas le port.
+      #
+      # Un port dedie supprime l'ambiguite sans toucher aux services de la machine.
+      # Le port INTERNE reste 5432 : c'est celui que voit application-docker.yml,
+      # dans le reseau Compose, ou aucun conflit n'est possible.
+      - "15432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:

@@ -23,12 +23,23 @@ docker compose up -d
 # 2. Compiler et tester (nécessite Docker pour Testcontainers)
 mvn verify
 
-# 3. Lancer l'application
+# 3. Publier les modules dans le dépôt local, puis lancer l'application
+#    Le `install` n'est pas facultatif : `-pl` réduit le réacteur Maven à un seul
+#    module, qui doit alors résoudre autohub-infrastructure depuis ~/.m2 —
+#    or `verify` n'y publie rien. À rejouer après toute modification d'un
+#    module amont.
+mvn install -DskipTests
 mvn -pl autohub-bootstrap spring-boot:run
 
 # 4. Vérifier
 curl http://localhost:8080/actuator/health
 ```
+
+> **Port de la base : 15432, pas 5432.** Un service PostgreSQL natif peut déjà
+> occuper 5432 sur la machine de développement — et sous Windows, deux serveurs
+> peuvent écouter le même port sans qu'aucun ne proteste, la connexion partant
+> alors vers l'un ou l'autre au hasard. Le port publié par `docker-compose.yml`
+> est donc dédié. Le port *interne* au réseau Compose reste 5432.
 
 **Prérequis** : JDK 21+, Maven 3.9+, Docker.
 

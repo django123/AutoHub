@@ -24,9 +24,21 @@ Projet d'apprentissage. L'objectif est que JE progresse, pas que le code soit
 
 ## Commandes
 - Build complet : `mvn verify`
-- Lancer l'app : `mvn -pl autohub-bootstrap spring-boot:run`
-- Base locale : `docker compose up -d`
+- Lancer l'app : `mvn install -DskipTests` **puis** `mvn -pl autohub-bootstrap spring-boot:run`
+  (le `install` est obligatoire : `-pl` réduit le réacteur à un module, Maven doit
+  alors résoudre `autohub-infrastructure` depuis `~/.m2`, où `verify` ne publie rien.
+  `-am` ne convient pas : il exécuterait `spring-boot:run` sur chaque module, à
+  commencer par le POM parent, qui n'a pas de classe `main`. À rejouer après chaque
+  modification d'un module amont.)
+- Base locale : `docker compose up -d` — publiée sur le port **15432**, pas 5432
 - Tests domaine seuls : `mvn -pl autohub-domain test`
+
+## Environnement de cette machine
+- Maven doit tourner sur le JDK 21 (`JAVA_HOME`), pas sur le 17.
+- Le port 5432 est déjà occupé par un service PostgreSQL Windows natif
+  (`postgresql-x64-16`). Windows laisse deux serveurs écouter le même port, la
+  connexion partant alors vers l'un ou l'autre au hasard : d'où le port 15432.
+- Les ports 8080, 8081 et 8090 sont pris par d'autres processus.
 
 ## Ce que j'attends de toi
 - Explique le POURQUOI avant le COMMENT

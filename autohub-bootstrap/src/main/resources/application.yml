@@ -9,7 +9,10 @@ spring:
     # Surcharges par variables d'environnement : en local, docker-compose
     # fournit les valeurs ; en production, le fournisseur d'hebergement.
     # Aucun secret n'est jamais ecrit en dur dans ce fichier.
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/autohub}
+    # Port 15432 : celui publie par docker-compose.yml, ou le pourquoi est explique.
+    # En resume : 5432 peut etre partage avec un PostgreSQL natif de la machine,
+    # et la connexion part alors vers l'un ou l'autre de facon non deterministe.
+    url: ${DB_URL:jdbc:postgresql://localhost:15432/autohub}
     username: ${DB_USER:autohub}
     password: ${DB_PASSWORD:autohub}
 

@@ -31,6 +31,19 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!--
+          Sans ce registre, l'endpoint /actuator/prometheus n'est jamais enregistre :
+          l'actuator seul ne sait pas produire le format texte de Prometheus.
+          application.yml l'annoncait pourtant dans sa liste d'exposition, et
+          ops/prometheus.yml le scrute toutes les 15 secondes : il repondait 404.
+          Portee runtime : aucun code ne l'importe, seule l'auto-configuration
+          a besoin de le trouver sur le classpath.
+        -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- ===== Tests ===== -->
         <dependency>
