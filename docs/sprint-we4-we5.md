@@ -308,7 +308,7 @@ Résultat : 1 succès, 49 `VehicleNotAvailableException`. **Sans la contrainte :
 - **Le bean `Clock` devra être dans le fuseau de l'agence.**
 - **`OptimisticLockingFailureException` n'est pas traduite.**
 - **L'ADR 0002 est toujours « proposé »**, alors qu'il est désormais implémenté
-  et testé. Il faut le passer à « accepté ».
+  et testé. Il faut le passer à « accepté ». *(Fait le 2026-10-12.)*
 
 **3. ArchUnit** : toujours vert. La règle 3 n'est plus vide (`allowEmptyShould`
 retiré), et une règle a été ajoutée : seule la persistance manipule les

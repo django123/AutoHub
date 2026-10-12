@@ -1,6 +1,6 @@
 # ADR 0002 — `tsrange` plutôt que `tstzrange` pour la période de location
 
-- **Statut** : proposé
+- **Statut** : accepté le 2026-10-12 (proposé le 2026-09-12)
 - **Date** : 2026-09-12
 - **Décideur** : Kutemodojika
 
@@ -118,3 +118,30 @@ Au week-end 5, deux tests d'intégration à écrire en plus du test de concurren
 2. Deux locations adjacentes (l'une finit quand l'autre commence) : les deux
    doivent être acceptées — c'est le scénario qui justifie l'intervalle
    semi-ouvert, et il doit rester vrai après ce changement de type.
+
+## Mise en œuvre (sprint WE4-WE5, 2026-10-12)
+
+L'ADR passe en « accepté » : la décision est implémentée, et chaque point est
+couvert par un test.
+
+| Point de l'ADR | Implémentation | Preuve |
+|---|---|---|
+| Décision 1 : `tsrange '[)'` | `V2__fleet_and_rental.sql` : colonnes `timestamp`, plage `tsrange` générée, contrainte `rental_no_overlap` | `RentalRepositoryAdapterTest` |
+| Décision 2 : précision sub-microseconde | Tranchée en faveur du **refus** : `RentalPeriod` exige des bornes à la minute près (`RENTAL_PERIOD_NOT_MINUTE_ALIGNED`). Tronquer aurait modifié la demande sans le dire. | `RentalPeriodTest.bornes_avec_nanosecondes` |
+| Vérification 1 : 02:00 → 03:00 le dernier dimanche de mars | Seconde location rejetée | `RentalRepositoryAdapterTest.passage_a_l_heure_d_ete` |
+| Vérification 2 : locations adjacentes | Les deux acceptées | `RentalRepositoryAdapterTest.adjacentes_acceptees` |
+
+**Écart découvert à la mise en œuvre.** Choisir `tsrange` ne suffisait pas.
+Avec `hibernate.jdbc.time_zone: UTC`, Hibernate convertissait chaque
+`LocalDateTime` depuis le fuseau de la JVM : sur une JVM en `Europe/Paris`,
+`08:00` était stocké `07:00`, et la plage `02:00 → 03:00` du passage à l'heure
+d'été devenait vide. C'est exactement le défaut que cet ADR écartait,
+réintroduit par la couche JDBC. Deux correctifs :
+
+- `hibernate.type.java_time_use_direct_jdbc: true` : le `LocalDateTime` est
+  transmis au pilote sans conversion ;
+- la JVM de test est forcée en `Europe/Paris`, car en UTC (le fuseau des runners
+  de CI) le défaut est invisible.
+
+Le test `heures_nominales_en_base` vérifie que la base contient bien l'heure du
+domaine. Détail dans `docs/sprint-we4-we5.md`, bloc 2.2.

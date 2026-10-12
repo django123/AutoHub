@@ -534,7 +534,7 @@ Bilan complet dans [`docs/sprint-we4-we5.md`](docs/sprint-we4-we5.md) :
       sinon elle deviendra un 500 au lieu d'un 409.
 - [ ] Déclarer un bean `Clock` dans le fuseau de l'agence (`Europe/Paris`), pas
       en UTC : `LocalDateTime.now(clock)` en dépend.
-- [ ] Passer l'ADR 0002 de « proposé » à « accepté » : il est implémenté et testé.
+- [x] Passer l'ADR 0002 de « proposé » à « accepté » : il est implémenté et testé.
 - [ ] Traitement d'expiration (week-end 7). Une réservation échue continue de
       bloquer le véhicule tant que personne ne l'a fait expirer.
 
