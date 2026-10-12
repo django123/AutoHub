@@ -36,6 +36,22 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
+        # ------------------------------------------------------------------
+        # Indispensable a l'ADR 0002, decouvert par les tests d'integration.
+        # Sans ce reglage, Hibernate convertit chaque LocalDateTime en
+        # java.sql.Timestamp dans le fuseau de la JVM, puis l'ecrit en UTC
+        # (a cause de time_zone ci-dessus). Consequences mesurees sur une JVM
+        # en Europe/Paris :
+        #   - 08:00 cote domaine est stocke 07:00 en base ;
+        #   - 02:00 et 03:00 le jour du passage a l'heure d'ete deviennent
+        #     tous deux 01:00 UTC : la plage est VIDE, et une plage vide
+        #     echappe a la contrainte d'exclusion.
+        # En CI (JVM en UTC), rien de tout cela ne se voit.
+        # Avec true, le pilote recoit le LocalDateTime tel quel (setObject) et
+        # ecrit l'heure nominale dans la colonne timestamp, sans conversion.
+        # ------------------------------------------------------------------
+        type:
+          java_time_use_direct_jdbc: true
 
   flyway:
     enabled: true

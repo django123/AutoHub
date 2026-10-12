@@ -73,14 +73,25 @@ class HexagonalArchitectureTest {
     // REGLE 3 : JPA reste confine dans la persistance
     // =================================================================
     // Sans cette regle, une @Entity finit toujours par apparaitre "juste pour
-    // depanner" dans un controleur ou un service. allowEmptyShould(true) est
-    // necessaire tant qu'aucune entite JPA n'existe (elles arrivent au WE 5).
+    // depanner" dans un controleur ou un service. Depuis le WE 5, RentalJpaEntity
+    // existe : la regle n'est plus vide, allowEmptyShould a donc ete retire --
+    // si toutes les entites disparaissaient un jour, on veut le savoir.
     @ArchTest
     static final ArchRule les_entites_jpa_restent_dans_la_persistance = classes()
             .that().areAnnotatedWith("jakarta.persistence.Entity")
             .should().resideInAPackage("..infrastructure..persistence..")
-            .allowEmptyShould(true)
             .because("une entite JPA est un detail de stockage, pas un objet metier");
+
+    // Complement ajoute au week-end 5, quand la premiere entite JPA est apparue.
+    // La regle 3 dit OU vit une entite ; celle-ci dit QUI peut la voir. Sans
+    // elle, un futur controleur pourrait renvoyer directement une
+    // RentalJpaEntity en JSON -- le mapper serait contourne, et le schema de
+    // la base deviendrait de fait le contrat de l'API.
+    @ArchTest
+    static final ArchRule seule_la_persistance_manipule_les_entites_jpa = noClasses()
+            .that().resideOutsideOfPackage("..infrastructure..persistence..")
+            .should().dependOnClassesThat().areAnnotatedWith("jakarta.persistence.Entity")
+            .because("le reste de l'application ne parle qu'aux agregats, via le mapper");
 
     // =================================================================
     // REGLE 4 : isolation des contextes metier

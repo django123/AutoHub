@@ -74,6 +74,21 @@
 
     <build>
         <plugins>
+            <!--
+              Fuseau de la JVM de test force a Europe/Paris. Les runners de CI
+              tournent en UTC, fuseau dans lequel un decalage LocalDateTime/UTC
+              est invisible : les tests de l'ADR 0002 (heures nominales, passage
+              a l'heure d'ete) y passeraient meme si la configuration Hibernate
+              regressait. Paris a des changements d'heure : le bug, s'il revient,
+              se voit partout.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-Duser.timezone=Europe/Paris</argLine>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

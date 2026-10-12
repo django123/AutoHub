@@ -79,16 +79,23 @@ class ApplicationSmokeTest {
     }
 
     @Test
-    @DisplayName("Flyway a applique la migration V1 et installe les extensions")
+    @DisplayName("Flyway a applique toutes les migrations et installe les extensions")
     void flyway_a_applique_les_migrations() throws Exception {
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement()) {
 
-            // La table temoin creee par V1__baseline.sql
-            ResultSet smoke = statement.executeQuery(
-                    "SELECT count(*) FROM flyway_smoke_check");
-            smoke.next();
-            assertThat(smoke.getInt(1)).isEqualTo(1);
+            // L'historique de Flyway, plutot qu'une table temoin : V2 a supprime
+            // flyway_smoke_check, et ce test n'a pas a etre modifie a chaque
+            // nouvelle migration. Aucune migration ne doit etre en echec.
+            ResultSet failed = statement.executeQuery(
+                    "SELECT count(*) FROM flyway_schema_history WHERE NOT success");
+            failed.next();
+            assertThat(failed.getInt(1)).as("migrations en echec").isZero();
+
+            ResultSet applied = statement.executeQuery(
+                    "SELECT count(*) FROM flyway_schema_history WHERE version IN ('1', '2')");
+            applied.next();
+            assertThat(applied.getInt(1)).as("V1 et V2 appliquees").isEqualTo(2);
 
             // btree_gist : indispensable a la contrainte d'exclusion du WE 5.
             // Le verifier maintenant evite de decouvrir son absence dans trois

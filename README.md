@@ -248,17 +248,23 @@ Avec des intervalles **semi-ouverts**, A se termine juste avant que B ne
 commence. Aucun chevauchement, aucune soustraction arbitraire.
 
 **Le bénéfice décisif arrive au week-end 5** : c'est exactement la sémantique
-du type `tstzrange` de PostgreSQL, notée `'[)'`. Notre modèle Java et notre
-contrainte d'exclusion GiST partageront la même définition du chevauchement.
+des types range de PostgreSQL, notée `'[)'`. Notre modèle Java et notre
+contrainte d'exclusion GiST partagent la même définition du chevauchement.
 Sans cela, le code et la base se contrediraient sur les cas limites — le pire
 type de bug qui soit.
+
+Le type retenu est `tsrange` (sans fuseau) et non `tstzrange` : la nuit du
+passage à l'heure d'été, une plage `tstzrange` peut devenir vide et échapper à
+la contrainte. Mesures et décision dans
+[ADR 0002](docs/adr/0002-tsrange-plutot-que-tstzrange.md).
 
 ---
 
 ## 6. ArchUnit : rendre les règles impossibles à violer
 
 [`HexagonalArchitectureTest`](autohub-bootstrap/src/test/java/com/ocarius/autohub/architecture/HexagonalArchitectureTest.java)
-encode six règles architecturales. Une violation fait échouer la CI.
+encode les règles architecturales (neuf `@ArchTest`). Une violation fait
+échouer la CI.
 
 ```java
 @ArchTest
@@ -276,8 +282,13 @@ violations existantes, et finit invariablement commentée avec un
 violée.
 
 Les règles d'isolation entre contextes (`rental` ne dépend pas de `sales`)
-passent à vide aujourd'hui — ces modules n'existent pas encore. C'est
-exactement le but : **la barrière est posée avant la tentation**.
+ont été posées avant que ces modules n'existent. C'est exactement le but :
+**la barrière est posée avant la tentation**.
+
+Au week-end 5, avec la première entité JPA, une règle a été ajoutée : **seul le
+paquet `..persistence..` peut dépendre d'une `@Entity`**. Sans elle, un
+contrôleur pourrait un jour sérialiser directement `RentalJpaEntity`, et le
+schéma de la base deviendrait de fait le contrat de l'API.
 
 ---
 
@@ -317,6 +328,84 @@ fonctionnalités sur lesquelles repose ce projet.
 Tester sur un moteur différent de celui de production, c'est tester autre
 chose que ce qu'on livre.
 
+### La double réservation rendue physiquement impossible
+
+La non-superposition des locations n'est **pas** un invariant de l'agrégat
+`Rental`. Un agrégat ne voit que lui-même : deux threads qui créent chacun une
+location valide sur la même période n'ont aucun moyen de se connaître. Un
+`SELECT` de vérification suivi d'un `INSERT` laisse une fenêtre entre les deux.
+L'invariant traverse les agrégats, donc il appartient à la base
+([`V2__fleet_and_rental.sql`](autohub-infrastructure/src/main/resources/db/migration/V2__fleet_and_rental.sql)) :
+
+```sql
+period tsrange GENERATED ALWAYS AS (tsrange(starts_at, ends_at, '[)')) STORED,
+
+CONSTRAINT rental_no_overlap EXCLUDE USING gist (
+    vehicle_id WITH =,
+    period     WITH &&
+) WHERE (status IN ('RESERVED', 'CONFIRMED', 'PICKED_UP'))
+```
+
+- **GiST** : un B-tree ne sait indexer qu'un ordre total, et « chevauche » n'en
+  est pas un. **`btree_gist`** permet de combiner l'égalité sur `uuid` avec le
+  chevauchement de plages dans le même index.
+- **Colonne générée** : l'entité JPA ne voit que `starts_at` et `ends_at`, deux
+  `LocalDateTime` ordinaires. PostgreSQL calcule la plage lui-même. Aucun type
+  exotique ne remonte dans l'entité ni dans le mapper.
+- **Contrainte partielle** : une location annulée, expirée ou rendue libère le
+  véhicule. La liste des statuts est dupliquée dans `RentalStatus.blockingStatuses()`,
+  et un test d'intégration compare les deux en lisant `pg_constraint`.
+- **Traduction d'exception** : `RentalRepositoryAdapter` repère le SQLState
+  `23P01` et lève `VehicleNotAvailableException`, une exception du domaine.
+- **Verrou consultatif par véhicule** : PostgreSQL insère la ligne *avant* de
+  vérifier la contrainte, donc deux réservations concurrentes peuvent
+  s'attendre mutuellement (deadlock, `40P01`, 1 s de pénalité chacun). Le test à
+  50 threads l'a révélé. L'adaptateur prend `pg_advisory_xact_lock` sur
+  l'identifiant du véhicule avant d'écrire : les réservations d'un même
+  véhicule passent une par une, et la contrainte les refuse immédiatement. Le
+  verrou ordonne les transactions, mais c'est toujours la contrainte qui
+  décide. Le
+  domaine la déclare mais ne la lève jamais, puisqu'il ignore que PostgreSQL
+  existe. L'adaptateur fait un `saveAndFlush` pour que la violation surgisse
+  chez lui, et non au COMMIT, hors de sa portée.
+
+La preuve est [`RentalConcurrencyTest`](autohub-bootstrap/src/test/java/com/ocarius/autohub/rental/infrastructure/out/persistence/RentalConcurrencyTest.java) :
+50 threads libérés au même instant par un `CountDownLatch` réservent le même
+véhicule sur la même période. Résultat : **1 succès, 49 refus**. Sans la
+contrainte, on obtient 50 succès. C'est vérifié : un test qui ne peut pas
+échouer ne teste rien.
+
+### Entité JPA ≠ agrégat
+
+`RentalJpaEntity` est un sac de colonnes : constructeur vide, statut en
+`String` et non en enum du domaine, aucune logique. `RentalMapper`, écrit à la
+main, reconstruit l'agrégat via les constructeurs des value objects, qui
+revalident, puis via `Rental.restore()`. Celui-ci vérifie la cohérence entre
+l'état et ses données, sans rejouer l'historique : rejouer `reserve()`
+revérifierait le préavis aujourd'hui, et une location d'hier deviendrait
+illisible.
+
+Le champ `version` du verrouillage optimiste vit **uniquement dans l'entité**.
+Pour qu'il protège quelque chose, le chargement et la sauvegarde doivent avoir
+lieu dans la même transaction. `RentalRepository.save()` est donc en
+`Propagation.MANDATORY` : appelé hors transaction, il échoue au lieu de perdre
+silencieusement une modification concurrente.
+
+### `LocalDateTime` et fuseau horaire : le piège JDBC
+
+`hibernate.jdbc.time_zone: UTC` fait convertir par Hibernate chaque
+`LocalDateTime` en `Timestamp`, dans le fuseau de la JVM, puis l'écrit en UTC.
+Les tests d'intégration ont révélé deux effets sur une JVM `Europe/Paris` :
+
+- `08:00` est stocké `07:00` ;
+- la plage `02:00 → 03:00` du passage à l'heure d'été devient `01:00 → 01:00`.
+  Elle est vide, et échappe à la contrainte d'exclusion.
+
+C'est le défaut de l'ADR 0002, réintroduit par la couche JDBC. Le correctif est
+`hibernate.type.java_time_use_direct_jdbc: true`. Les runners de CI tournant en
+UTC, où le bug est invisible, la JVM de test est forcée en `Europe/Paris`
+(`autohub-bootstrap/pom.xml`).
+
 ---
 
 ## 8. Arborescence
@@ -327,35 +416,50 @@ autohub/
 ├── docker-compose.yml               # Postgres + Prometheus + Grafana
 ├── README.md
 ├── BACKLOG.md                       # idées mises de côté (discipline de périmètre)
-├── docs/adr/                        # décisions d'architecture
+├── docs/
+│   ├── adr/                         # décisions d'architecture (0001 à 0003)
+│   └── sprint-we4-we5.md            # notes du sprint Rental : GiST, mapping, revues
 ├── ops/prometheus.yml
 ├── .github/workflows/ci.yml
 │
 ├── autohub-domain/                  # ⭐ zéro dépendance
-│   └── src/main/java/com/ocarius/autohub/shared/domain/
-│       ├── AggregateRoot.java
-│       ├── DomainEvent.java
-│       ├── DomainException.java
-│       ├── BusinessRuleViolation.java
-│       ├── EntityId.java
-│       └── vo/
-│           ├── Money.java
-│           └── DateRange.java
+│   └── src/main/java/com/ocarius/autohub/
+│       ├── shared/domain/
+│       │   ├── AggregateRoot.java, DomainEvent.java, DomainException.java
+│       │   ├── BusinessRuleViolation.java, EntityId.java
+│       │   └── vo/  Money.java, DateRange.java
+│       ├── fleet/domain/model/
+│       │   └── VehicleId.java       # seul élément de fleet pour l'instant
+│       └── rental/domain/
+│           ├── model/      Rental, RentalId, CustomerId, RentalPeriod,
+│           │               RentalStatus, VehicleHandover
+│           ├── event/      RentalReserved, RentalConfirmed, RentalCancelled,
+│           │               RentalExpired, VehiclePickedUp, VehicleReturned
+│           └── exception/  IllegalRentalTransitionException,
+│                           VehicleNotAvailableException
 │
 ├── autohub-application/
-│   └── .../shared/application/port/out/EventPublisher.java
+│   ├── .../shared/application/port/out/EventPublisher.java
+│   └── .../rental/application/port/out/RentalRepository.java
 │
 ├── autohub-infrastructure/
 │   ├── .../shared/infrastructure/error/GlobalExceptionHandler.java
 │   ├── .../shared/infrastructure/event/LoggingEventPublisher.java
-│   └── src/main/resources/db/migration/V1__baseline.sql
+│   ├── .../rental/infrastructure/out/persistence/
+│   │       RentalJpaEntity, RentalJpaRepository, RentalMapper, RentalRepositoryAdapter
+│   └── src/main/resources/db/migration/
+│       ├── V1__baseline.sql         # extensions btree_gist, pgcrypto
+│       └── V2__fleet_and_rental.sql # tables vehicle, rental + rental_no_overlap
 │
 └── autohub-bootstrap/
     ├── .../AutoHubApplication.java
-    └── src/test/java/.../architecture/HexagonalArchitectureTest.java
+    └── src/test/java/.../
+        ├── architecture/HexagonalArchitectureTest.java
+        └── rental/infrastructure/out/persistence/
+            RentalRepositoryAdapterTest, RentalConcurrencyTest
 ```
 
-### Structure cible d'un contexte métier (à partir du week-end 3)
+### Structure d'un contexte métier (en place pour `rental`)
 
 ```
 com.ocarius.autohub.rental/
@@ -384,13 +488,25 @@ aux exigences de l'ORM.
 | Type | Portée | Outils | Vitesse | Volume visé |
 |---|---|---|---|---|
 | Unitaire domaine | un agrégat, un VO | JUnit + AssertJ | ms | ~70 % |
-| Architecture | tout le projet | ArchUnit | s | 6 règles |
+| Architecture | tout le projet | ArchUnit | s | 9 règles |
 | Intégration | app + Postgres réel | Testcontainers | s | ~20 % |
+| Concurrence | contrainte d'exclusion | Testcontainers + `CountDownLatch` | s | 1 test, le plus important |
 | Bout en bout | API complète | MockMvc / RestAssured | s | ~10 % |
 
 Convention de nommage : les tests décrivent une **règle**, pas une mécanique.
 `additionner_deux_devises_differentes_est_refuse` se lit comme une
 spécification ; `testPlus2` ne dit rien à personne.
+
+Dans les tests du domaine, un astérisque en tête de `@DisplayName` signale un
+cas limite souvent oublié : retour pile à l'heure, confirmation à l'instant
+exact de l'échéance, expiration idempotente, etc.
+
+Le temps est toujours piloté par un `Clock` fixe, jamais par `Thread.sleep` ni
+par l'horloge système. Les tests d'intégration ne sont **pas** `@Transactional`,
+parce que la contrainte d'exclusion et le verrouillage optimiste ne se
+manifestent qu'entre transactions distinctes. Les tests de `autohub-bootstrap`
+tournent avec une JVM en `Europe/Paris`, pour que les bugs de fuseau soient
+visibles aussi en CI.
 
 ---
 
@@ -399,7 +515,7 @@ spécification ; `testPlus2` ne dit rien à personne.
 | Phase | Week-ends | Contenu | État |
 |---|---|---|---|
 | 0 | 1-2 | Fondations, noyau de domaine, CI, déploiement | ✅ |
-| 1 | 3-5 | Agrégats `Vehicle` et `Rental`, contrainte GiST | ⬜ |
+| 1 | 3-5 | Agrégats `Vehicle` et `Rental`, contrainte GiST | 🟡 `Rental` + GiST ✅, `Vehicle` ⬜ |
 | 2 | 6-7 | API REST, réservation avec TTL | ⬜ |
 | 3 | 8-9 | Tarification, retour véhicule, pénalités | ⬜ |
 | 4 | 10-11 | Greffe de la vente | ⬜ |
@@ -407,6 +523,20 @@ spécification ; `testPlus2` ne dit rien à personne.
 | — | 14-15 | Documentation, marge | ⬜ |
 
 Détail complet dans [`docs/roadmap-autohub-projet-1.md`](docs/roadmap-autohub-projet-1.md).
+
+### Reste à faire avant de clore la phase 1
+
+Bilan complet dans [`docs/sprint-we4-we5.md`](docs/sprint-we4-we5.md) :
+
+- [ ] Écrire l'agrégat `Vehicle` (week-end 3, sauté) et compléter la table
+      `vehicle`, qui n'est pour l'instant qu'une maquette.
+- [ ] Traduire `OptimisticLockingFailureException` en exception du domaine,
+      sinon elle deviendra un 500 au lieu d'un 409.
+- [ ] Déclarer un bean `Clock` dans le fuseau de l'agence (`Europe/Paris`), pas
+      en UTC : `LocalDateTime.now(clock)` en dépend.
+- [ ] Passer l'ADR 0002 de « proposé » à « accepté » : il est implémenté et testé.
+- [ ] Traitement d'expiration (week-end 7). Une réservation échue continue de
+      bloquer le véhicule tant que personne ne l'a fait expirer.
 
 ---
 
