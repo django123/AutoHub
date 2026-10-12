@@ -556,8 +556,9 @@ Bilan complet dans [`docs/sprint-we4-we5.md`](docs/sprint-we4-we5.md) :
 - [x] Traduire `OptimisticLockingFailureException` en exception du domaine,
       sinon elle deviendra un 500 au lieu d'un 409.
 - [x] Répondre 409, et non 422, aux conflits : `ConflictException` (README §3.5).
-- [ ] Déclarer un bean `Clock` dans le fuseau de l'agence (`Europe/Paris`), pas
+- [x] Déclarer un bean `Clock` dans le fuseau de l'agence (`Europe/Paris`), pas
       en UTC : `LocalDateTime.now(clock)` en dépend.
+      *Fait : `ClockConfiguration`, fuseau réglable par `autohub.agency.time-zone`.*
 - [x] Passer l'ADR 0002 de « proposé » à « accepté » : il est implémenté et testé.
 - [ ] Traitement d'expiration (week-end 7). Une réservation échue continue de
       bloquer le véhicule tant que personne ne l'a fait expirer.

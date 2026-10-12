@@ -70,7 +70,7 @@ Voir [ADR 0003](adr/0003-machine-a-etats-rental-enum.md).
 | 4 | Pas de collection exposée. Les événements passent par `peekDomainEvents()`, en vue non modifiable. | — | — |
 | 5 | Aucune séquence d'appels publics ne viole la machine à états (`RentalStatusTest` + `RentalTest`). `expireIfOverdue` contourne `ensureCanTransitionTo`, mais il est gardé par `status == RESERVED`. | — | — |
 | 6 | Aucune règle métier dans les tests. | — | — |
-| 7 | `Clock` injecté partout. **Mais `LocalDateTime.now(clock)` utilise le fuseau de l'horloge.** | Si le bean `Clock` est en UTC, le préavis est calculé avec 1 à 2 h d'erreur par rapport à l'heure nominale de l'agence. | Au WE6, déclarer `Clock.system(ZoneId.of("Europe/Paris"))`, et non `Clock.systemUTC()`. |
+| 7 | `Clock` injecté partout. **Mais `LocalDateTime.now(clock)` utilise le fuseau de l'horloge.** | Si le bean `Clock` est en UTC, le préavis est calculé avec 1 à 2 h d'erreur par rapport à l'heure nominale de l'agence. | Au WE6, déclarer `Clock.system(ZoneId.of("Europe/Paris"))`, et non `Clock.systemUTC()`. *(Fait le 2026-10-12 : `ClockConfiguration`.)* |
 | 8 | Une réservation échue reste `RESERVED` en base **tant que personne n'appelle `expireIfOverdue`**. Elle continue de bloquer le véhicule pour la contrainte d'exclusion. | Après les 30 min, le véhicule reste indisponible jusqu'au passage du traitement d'expiration. | Le traitement planifié du WE7, avec son index partiel. |
 
 **Quoi surveiller la prochaine fois :**
@@ -308,7 +308,7 @@ Résultat : 1 succès, 49 `VehicleNotAvailableException`. **Sans la contrainte :
   `EventPublisher`.
 - **Les réservations échues bloquent le véhicule** jusqu'au traitement
   d'expiration (WE7).
-- **Le bean `Clock` devra être dans le fuseau de l'agence.**
+- **Le bean `Clock` devra être dans le fuseau de l'agence.** *(Fait le 2026-10-12.)*
 - **`OptimisticLockingFailureException` n'est pas traduite.** *(Fait le 2026-10-12 : `ConcurrentRentalModificationException`.)*
 - **L'ADR 0002 est toujours « proposé »**, alors qu'il est désormais implémenté
   et testé. Il faut le passer à « accepté ». *(Fait le 2026-10-12.)*

@@ -58,6 +58,14 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: false
 
+autohub:
+  agency:
+    # Fuseau de l'agence : celui du bean Clock (ClockConfiguration), donc de
+    # LocalDateTime.now(clock) dans le domaine. Jamais UTC : les heures du
+    # domaine sont nominales a l'agence (ADR 0002). Le changer ne convertit
+    # pas les heures deja stockees.
+    time-zone: ${AUTOHUB_AGENCY_TIME_ZONE:Europe/Paris}
+
 management:
   endpoints:
     web:
