@@ -1,5 +1,6 @@
 package com.ocarius.autohub.rental.application.port.out;
 
+import com.ocarius.autohub.rental.domain.exception.ConcurrentRentalModificationException;
 import com.ocarius.autohub.rental.domain.exception.VehicleNotAvailableException;
 import com.ocarius.autohub.rental.domain.model.Rental;
 import com.ocarius.autohub.rental.domain.model.RentalId;
@@ -25,8 +26,10 @@ public interface RentalRepository {
     /**
      * Enregistre une location nouvelle ou modifiee.
      *
-     * @throws VehicleNotAvailableException si la location bloque le vehicule sur
-     *                                      une periode deja occupee
+     * @throws VehicleNotAvailableException          si la location bloque le vehicule sur
+     *                                               une periode deja occupee
+     * @throws ConcurrentRentalModificationException si la location a ete modifiee par
+     *                                               une autre transaction depuis son chargement
      */
     void save(Rental rental);
 

@@ -2,6 +2,7 @@ package com.ocarius.autohub.rental.infrastructure.out.persistence;
 
 import com.ocarius.autohub.fleet.domain.model.VehicleId;
 import com.ocarius.autohub.rental.application.port.out.RentalRepository;
+import com.ocarius.autohub.rental.domain.exception.ConcurrentRentalModificationException;
 import com.ocarius.autohub.rental.domain.exception.VehicleNotAvailableException;
 import com.ocarius.autohub.rental.domain.model.CustomerId;
 import com.ocarius.autohub.rental.domain.model.Rental;
@@ -218,7 +219,7 @@ class RentalRepositoryAdapterTest extends AbstractPostgresIntegrationTest {
         }
 
         @Test
-        @DisplayName("* deux modifications concurrentes de la meme location : la seconde echoue")
+        @DisplayName("* deux modifications concurrentes de la meme location : la seconde echoue en exception du domaine")
         void mise_a_jour_perdue_evitee() throws Exception {
             Rental rental = reserved(insertVehicle(), RentalPeriod.of(LUNDI_8H, LUNDI_8H.plusDays(1)));
             saveInNewTransaction(rental);
@@ -245,7 +246,14 @@ class RentalRepositoryAdapterTest extends AbstractPostgresIntegrationTest {
             });
             bHasCommitted.countDown();
 
-            assertThatThrownBy(a::join).hasCauseInstanceOf(OptimisticLockingFailureException.class);
+            // A recoit une exception du domaine, pas une exception Spring. L'exception
+            // technique reste dans la chaine des causes, pour le diagnostic.
+            assertThatThrownBy(a::join)
+                    .cause()
+                    .isInstanceOfSatisfying(ConcurrentRentalModificationException.class,
+                            e -> assertThat(e.code()).isEqualTo("RENTAL_CONCURRENT_MODIFICATION"))
+                    .hasCauseInstanceOf(OptimisticLockingFailureException.class);
+            // Et la modification de B n'a pas ete ecrasee.
             assertThat(repository.findById(rental.id()).orElseThrow().status()).isEqualTo(RentalStatus.CANCELLED);
         }
 

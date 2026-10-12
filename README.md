@@ -389,7 +389,10 @@ Le champ `version` du verrouillage optimiste vit **uniquement dans l'entité**.
 Pour qu'il protège quelque chose, le chargement et la sauvegarde doivent avoir
 lieu dans la même transaction. `RentalRepository.save()` est donc en
 `Propagation.MANDATORY` : appelé hors transaction, il échoue au lieu de perdre
-silencieusement une modification concurrente.
+silencieusement une modification concurrente. Quand l'`UPDATE ... WHERE version = ?`
+ne trouve plus sa ligne, l'adaptateur traduit l'`OptimisticLockingFailureException`
+de Spring en `ConcurrentRentalModificationException`, une exception du domaine.
+La couche application n'a ainsi aucune exception Spring à connaître.
 
 ### `LocalDateTime` et fuseau horaire : le piège JDBC
 
@@ -436,7 +439,8 @@ autohub/
 │           ├── event/      RentalReserved, RentalConfirmed, RentalCancelled,
 │           │               RentalExpired, VehiclePickedUp, VehicleReturned
 │           └── exception/  IllegalRentalTransitionException,
-│                           VehicleNotAvailableException
+│                           VehicleNotAvailableException,
+│                           ConcurrentRentalModificationException
 │
 ├── autohub-application/
 │   ├── .../shared/application/port/out/EventPublisher.java
@@ -530,7 +534,7 @@ Bilan complet dans [`docs/sprint-we4-we5.md`](docs/sprint-we4-we5.md) :
 
 - [ ] Écrire l'agrégat `Vehicle` (week-end 3, sauté) et compléter la table
       `vehicle`, qui n'est pour l'instant qu'une maquette.
-- [ ] Traduire `OptimisticLockingFailureException` en exception du domaine,
+- [x] Traduire `OptimisticLockingFailureException` en exception du domaine,
       sinon elle deviendra un 500 au lieu d'un 409.
 - [ ] Déclarer un bean `Clock` dans le fuseau de l'agence (`Europe/Paris`), pas
       en UTC : `LocalDateTime.now(clock)` en dépend.

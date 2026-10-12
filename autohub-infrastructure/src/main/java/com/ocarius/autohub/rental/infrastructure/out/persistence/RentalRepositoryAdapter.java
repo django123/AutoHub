@@ -1,11 +1,13 @@
 package com.ocarius.autohub.rental.infrastructure.out.persistence;
 
 import com.ocarius.autohub.rental.application.port.out.RentalRepository;
+import com.ocarius.autohub.rental.domain.exception.ConcurrentRentalModificationException;
 import com.ocarius.autohub.rental.domain.exception.VehicleNotAvailableException;
 import com.ocarius.autohub.rental.domain.model.Rental;
 import com.ocarius.autohub.rental.domain.model.RentalId;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,6 +77,11 @@ import java.util.UUID;
  * condition obligatoire : appele hors transaction, il echoue au lieu de
  * perdre silencieusement une modification concurrente.
  *
+ * <p>L'echec de l'UPDATE survient au flush, donc ici, comme une violation de
+ * contrainte. L'{@code OptimisticLockingFailureException} de Spring est
+ * traduite en {@link ConcurrentRentalModificationException}, pour que la
+ * couche application n'ait a connaitre aucune exception Spring.
+ *
  * <p>Limite connue : si un jour un cas d'usage charge dans une requete HTTP et
  * sauvegarde dans une autre, il faudra faire voyager la version (dans le
  * domaine ou dans un DTO). Ce n'est le cas d'aucun cas d'usage prevu.
@@ -95,8 +102,9 @@ class RentalRepositoryAdapter implements RentalRepository {
     }
 
     /**
-     * Insere ou met a jour la location, et traduit un conflit de periode en
-     * exception du domaine.
+     * Insere ou met a jour la location, et traduit en exceptions du domaine un
+     * conflit de periode ({@link VehicleNotAvailableException}) comme une
+     * modification concurrente ({@link ConcurrentRentalModificationException}).
      *
      * <p>Apres une violation, la transaction de l'appelant est marquee
      * "rollback only" par Spring : elle ne peut plus rien valider. C'est
@@ -113,6 +121,10 @@ class RentalRepositoryAdapter implements RentalRepository {
         RentalMapper.copyToEntity(rental, entity);
         try {
             jpaRepository.saveAndFlush(entity);
+        } catch (OptimisticLockingFailureException e) {
+            // Avant DataAccessException, dont c'est une sous-classe : sinon ce
+            // bloc ne serait jamais atteint.
+            throw new ConcurrentRentalModificationException(rental.id(), e);
         } catch (DataAccessException e) {
             if (isPeriodConflict(rental, sqlStateOf(e))) {
                 throw new VehicleNotAvailableException(rental.vehicleId(), rental.period(), e);

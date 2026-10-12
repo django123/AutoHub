@@ -282,6 +282,8 @@ Résultat : 1 succès, 49 `VehicleNotAvailableException`. **Sans la contrainte :
 
    La première mérite une exception de domaine (`ConcurrentRentalModificationException`)
    avant le WE6, sinon l'API répondra 500 au lieu de 409.
+   *(Fait le 2026-10-12 : l'adaptateur la traduit, et `mise_a_jour_perdue_evitee`
+   le vérifie.)*
 
 ---
 
@@ -306,7 +308,7 @@ Résultat : 1 succès, 49 `VehicleNotAvailableException`. **Sans la contrainte :
 - **Les réservations échues bloquent le véhicule** jusqu'au traitement
   d'expiration (WE7).
 - **Le bean `Clock` devra être dans le fuseau de l'agence.**
-- **`OptimisticLockingFailureException` n'est pas traduite.**
+- **`OptimisticLockingFailureException` n'est pas traduite.** *(Fait le 2026-10-12 : `ConcurrentRentalModificationException`.)*
 - **L'ADR 0002 est toujours « proposé »**, alors qu'il est désormais implémenté
   et testé. Il faut le passer à « accepté ». *(Fait le 2026-10-12.)*
 
