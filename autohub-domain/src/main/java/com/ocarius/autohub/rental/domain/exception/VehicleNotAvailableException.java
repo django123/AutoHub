@@ -2,7 +2,7 @@ package com.ocarius.autohub.rental.domain.exception;
 
 import com.ocarius.autohub.fleet.domain.model.VehicleId;
 import com.ocarius.autohub.rental.domain.model.RentalPeriod;
-import com.ocarius.autohub.shared.domain.DomainException;
+import com.ocarius.autohub.shared.domain.ConflictException;
 
 /**
  * Le vehicule est deja occupe par une autre location sur une periode qui
@@ -21,7 +21,7 @@ import com.ocarius.autohub.shared.domain.DomainException;
  * l'adaptateur de persistance qui la <b>leve</b>, en traduisant le SQLState
  * {@code 23P01} (exclusion_violation) de PostgreSQL.
  */
-public class VehicleNotAvailableException extends DomainException {
+public class VehicleNotAvailableException extends ConflictException {
 
     /**
      * @param vehicleId le vehicule demande

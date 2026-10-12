@@ -283,7 +283,8 @@ Résultat : 1 succès, 49 `VehicleNotAvailableException`. **Sans la contrainte :
    La première mérite une exception de domaine (`ConcurrentRentalModificationException`)
    avant le WE6, sinon l'API répondra 500 au lieu de 409.
    *(Fait le 2026-10-12 : l'adaptateur la traduit, et `mise_a_jour_perdue_evitee`
-   le vérifie.)*
+   le vérifie. Les trois exceptions de conflit héritent désormais de
+   `ConflictException`, que `GlobalExceptionHandler` traduit en 409.)*
 
 ---
 

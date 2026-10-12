@@ -2,19 +2,19 @@ package com.ocarius.autohub.rental.domain.exception;
 
 import com.ocarius.autohub.rental.domain.model.RentalId;
 import com.ocarius.autohub.rental.domain.model.RentalStatus;
-import com.ocarius.autohub.shared.domain.DomainException;
+import com.ocarius.autohub.shared.domain.ConflictException;
 
 /**
  * Levee quand on demande a une location une transition que sa machine a etats
  * interdit : annuler apres le depart du vehicule, confirmer une location
  * annulee, etc.
  *
- * <p>Classe dediee plutot que {@code BusinessRuleViolation} : l'adaptateur REST
- * voudra la traduire en {@code 409 Conflict} (la ressource n'est pas dans le
- * bon etat), et non en {@code 422} comme une donnee invalide. Un appelant doit
- * donc pouvoir l'attraper precisement.
+ * <p>Classe dediee plutot que {@code BusinessRuleViolation} : la demande n'est
+ * pas invalide, c'est la location qui n'est pas dans le bon etat. D'ou
+ * l'heritage de {@link ConflictException}, que l'adaptateur REST traduit en
+ * {@code 409 Conflict} et non en {@code 422} comme une donnee invalide.
  */
-public class IllegalRentalTransitionException extends DomainException {
+public class IllegalRentalTransitionException extends ConflictException {
 
     private final RentalStatus from;
     private final RentalStatus to;

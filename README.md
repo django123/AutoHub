@@ -199,6 +199,25 @@ en main un `DateRange` invalide**. Aucune vérification défensive n'est
 nécessaire ailleurs dans le code. C'est le principe *« make illegal states
 unrepresentable »*.
 
+### 3.5 Deux familles de refus : invalide ou en conflit
+
+Le domaine ne connaît pas HTTP. Il distingue pourtant deux catégories de
+refus, parce qu'un appelant ne réagit pas de la même façon à chacune :
+
+| | Demande **invalide** | Demande **en conflit** avec l'état actuel |
+|---|---|---|
+| Exemple | location d'une demi-heure, prix négatif | véhicule déjà loué, location déjà annulée, modification concurrente |
+| La même demande, plus tard | échouera toujours | peut réussir après avoir rechargé l'état |
+| Réaction attendue | corriger sa saisie | recharger et reconsidérer |
+| Classe du domaine | `BusinessRuleViolation` | sous-classe de `ConflictException` |
+| Traduction REST | `422 Unprocessable Entity` | `409 Conflict` |
+
+`ConflictException` est une catégorie métier, pas un « 409 déguisé ».
+C'est `GlobalExceptionHandler` qui choisit le statut HTTP. Comme Spring retient
+toujours le handler le plus spécifique, une nouvelle exception de conflit
+n'a qu'à hériter de `ConflictException` pour répondre 409 : il n'y a aucune
+liste à tenir à jour, donc aucun oubli possible.
+
 ---
 
 ## 4. Le piège du `BigDecimal`
@@ -429,7 +448,7 @@ autohub/
 │   └── src/main/java/com/ocarius/autohub/
 │       ├── shared/domain/
 │       │   ├── AggregateRoot.java, DomainEvent.java, DomainException.java
-│       │   ├── BusinessRuleViolation.java, EntityId.java
+│       │   ├── BusinessRuleViolation.java, ConflictException.java, EntityId.java
 │       │   └── vo/  Money.java, DateRange.java
 │       ├── fleet/domain/model/
 │       │   └── VehicleId.java       # seul élément de fleet pour l'instant
@@ -536,6 +555,7 @@ Bilan complet dans [`docs/sprint-we4-we5.md`](docs/sprint-we4-we5.md) :
       `vehicle`, qui n'est pour l'instant qu'une maquette.
 - [x] Traduire `OptimisticLockingFailureException` en exception du domaine,
       sinon elle deviendra un 500 au lieu d'un 409.
+- [x] Répondre 409, et non 422, aux conflits : `ConflictException` (README §3.5).
 - [ ] Déclarer un bean `Clock` dans le fuseau de l'agence (`Europe/Paris`), pas
       en UTC : `LocalDateTime.now(clock)` en dépend.
 - [x] Passer l'ADR 0002 de « proposé » à « accepté » : il est implémenté et testé.

@@ -1,5 +1,6 @@
 package com.ocarius.autohub.shared.infrastructure.error;
 
+import com.ocarius.autohub.shared.domain.ConflictException;
 import com.ocarius.autohub.shared.domain.DomainException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,8 +17,10 @@ import java.time.Instant;
  * ADAPTATEUR ENTRANT : traduit les exceptions du domaine en reponses HTTP.
  *
  * <h2>Pourquoi cette classe est ici et pas dans le domaine</h2>
- * Le domaine ignore HTTP. Il leve {@code DomainException} avec un code metier ;
- * c'est <b>l'adaptateur</b> qui decide que cela vaut un 409 ou un 422. Si demain
+ * Le domaine ignore HTTP. Il leve {@code DomainException} avec un code metier,
+ * et distingue seulement deux categories : demande invalide, ou demande en
+ * conflit avec l'etat actuel ({@link ConflictException}). C'est
+ * <b>l'adaptateur</b> qui decide que cela vaut un 422 ou un 409. Si demain
  * on expose le meme cas d'usage via gRPC ou un consumer Kafka, un autre
  * adaptateur fera une autre traduction, sans que le metier ne bouge.
  *
@@ -57,10 +60,31 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         // Niveau WARN, pas ERROR : une regle metier qui joue son role n'est pas
         // un incident. Si ce log passe en ERROR, tes alertes crieront au loup.
         log.warn("Regle metier violee [{}] : {}", exception.code(), exception.getMessage());
+        return toProblem(HttpStatus.UNPROCESSABLE_ENTITY, "Regle metier violee", exception);
+    }
 
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-                HttpStatus.UNPROCESSABLE_ENTITY, exception.getMessage());
-        problem.setTitle("Regle metier violee");
+    /**
+     * 409 CONFLICT : la demande est valide, mais contredit l'etat actuel de la
+     * ressource (vehicule deja loue, location deja annulee, modification
+     * concurrente).
+     *
+     * <p>Le client ne doit pas corriger sa saisie, mais recharger l'etat et
+     * reconsiderer. Spring choisit le handler le plus specifique :
+     * {@code ConflictException} etant une sous-classe de {@code DomainException},
+     * ce handler l'emporte sur le precedent, sans liste d'exceptions a tenir a
+     * jour. Une nouvelle exception de conflit n'a qu'a heriter de
+     * {@link ConflictException}.
+     */
+    @ExceptionHandler(ConflictException.class)
+    public ProblemDetail handleConflict(ConflictException exception) {
+        log.warn("Conflit avec l'etat actuel [{}] : {}", exception.code(), exception.getMessage());
+        return toProblem(HttpStatus.CONFLICT, "Conflit avec l'etat actuel", exception);
+    }
+
+    /** Construit la reponse RFC 9457 commune a toutes les exceptions du domaine. */
+    private static ProblemDetail toProblem(HttpStatus status, String title, DomainException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, exception.getMessage());
+        problem.setTitle(title);
         problem.setType(URI.create(ERROR_BASE_URI + exception.code()));
         problem.setProperty("code", exception.code());
         problem.setProperty("timestamp", Instant.now());

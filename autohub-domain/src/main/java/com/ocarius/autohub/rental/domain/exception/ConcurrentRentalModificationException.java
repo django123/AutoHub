@@ -1,7 +1,7 @@
 package com.ocarius.autohub.rental.domain.exception;
 
 import com.ocarius.autohub.rental.domain.model.RentalId;
-import com.ocarius.autohub.shared.domain.DomainException;
+import com.ocarius.autohub.shared.domain.ConflictException;
 
 /**
  * La location a ete modifiee par quelqu'un d'autre entre le moment ou on l'a
@@ -25,7 +25,7 @@ import com.ocarius.autohub.shared.domain.DomainException;
  * une decision metier. C'est a l'appelant (ou a l'utilisateur) de decider en
  * voyant le nouvel etat.
  */
-public class ConcurrentRentalModificationException extends DomainException {
+public class ConcurrentRentalModificationException extends ConflictException {
 
     /**
      * @param rentalId la location modifiee concurremment
