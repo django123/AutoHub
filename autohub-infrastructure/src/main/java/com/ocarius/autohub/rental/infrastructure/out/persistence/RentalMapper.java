@@ -1,10 +1,11 @@
 package com.ocarius.autohub.rental.infrastructure.out.persistence;
 
-import com.ocarius.autohub.fleet.domain.model.VehicleId;
+import com.ocarius.autohub.shared.domain.VehicleId;
 import com.ocarius.autohub.rental.domain.model.CustomerId;
 import com.ocarius.autohub.rental.domain.model.Rental;
 import com.ocarius.autohub.rental.domain.model.RentalId;
 import com.ocarius.autohub.rental.domain.model.RentalPeriod;
+import com.ocarius.autohub.rental.domain.model.RentalQuote;
 import com.ocarius.autohub.rental.domain.model.RentalStatus;
 import com.ocarius.autohub.rental.domain.model.VehicleHandover;
 import com.ocarius.autohub.shared.domain.vo.Money;
@@ -43,16 +44,21 @@ final class RentalMapper {
      * @throws IllegalArgumentException    si le statut stocke ne correspond a aucune constante
      */
     static Rental toDomain(RentalJpaEntity entity) {
+        // Une seule devise par location : celle du prix fige, partagee par le
+        // tarif et la penalite (une seule colonne quoted_currency en base).
+        Currency currency = Currency.getInstance(entity.getQuotedCurrency());
         return Rental.restore(
                 RentalId.of(entity.getId()),
                 VehicleId.of(entity.getVehicleId()),
                 CustomerId.of(entity.getCustomerId()),
                 RentalPeriod.of(entity.getStartsAt(), entity.getEndsAt()),
-                Money.of(entity.getQuotedAmount(), Currency.getInstance(entity.getQuotedCurrency())),
+                RentalQuote.of(Money.of(entity.getDailyRateAmount(), currency),
+                        Money.of(entity.getQuotedAmount(), currency)),
                 RentalStatus.valueOf(entity.getStatus()),
                 entity.getReservedUntil(),
                 toHandover(entity.getPickupAt(), entity.getPickupMileageKm(), entity.getPickupFuelPercent()),
-                toHandover(entity.getDropoffAt(), entity.getDropoffMileageKm(), entity.getDropoffFuelPercent()));
+                toHandover(entity.getDropoffAt(), entity.getDropoffMileageKm(), entity.getDropoffFuelPercent()),
+                Money.of(entity.getLateReturnPenaltyAmount(), currency));
     }
 
     /**
@@ -71,6 +77,8 @@ final class RentalMapper {
         entity.setStatus(rental.status().name());
         entity.setQuotedAmount(rental.quotedPrice().amount());
         entity.setQuotedCurrency(rental.quotedPrice().currency().getCurrencyCode());
+        entity.setDailyRateAmount(rental.dailyRate().amount());
+        entity.setLateReturnPenaltyAmount(rental.lateReturnPenalty().amount());
         entity.setReservedUntil(rental.reservedUntil().orElse(null));
 
         VehicleHandover pickup = rental.pickup().orElse(null);

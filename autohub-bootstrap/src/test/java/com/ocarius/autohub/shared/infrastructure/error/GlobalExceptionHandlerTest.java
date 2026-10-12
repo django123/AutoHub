@@ -1,6 +1,6 @@
 package com.ocarius.autohub.shared.infrastructure.error;
 
-import com.ocarius.autohub.fleet.domain.model.VehicleId;
+import com.ocarius.autohub.shared.domain.VehicleId;
 import com.ocarius.autohub.rental.domain.exception.ConcurrentRentalModificationException;
 import com.ocarius.autohub.rental.domain.exception.IllegalRentalTransitionException;
 import com.ocarius.autohub.rental.domain.exception.VehicleNotAvailableException;

@@ -77,6 +77,12 @@ public class RentalJpaEntity {
     @Column(name = "quoted_currency", nullable = false, length = 3)
     private String quotedCurrency;
 
+    @Column(name = "daily_rate_amount", nullable = false, precision = 12, scale = 2)
+    private BigDecimal dailyRateAmount;
+
+    @Column(name = "late_return_penalty_amount", nullable = false, precision = 12, scale = 2)
+    private BigDecimal lateReturnPenaltyAmount;
+
     @Column(name = "reserved_until")
     private Instant reservedUntil;
 
@@ -142,6 +148,12 @@ public class RentalJpaEntity {
 
     String getQuotedCurrency() { return quotedCurrency; }
     void setQuotedCurrency(String quotedCurrency) { this.quotedCurrency = quotedCurrency; }
+
+    BigDecimal getDailyRateAmount() { return dailyRateAmount; }
+    void setDailyRateAmount(BigDecimal dailyRateAmount) { this.dailyRateAmount = dailyRateAmount; }
+
+    BigDecimal getLateReturnPenaltyAmount() { return lateReturnPenaltyAmount; }
+    void setLateReturnPenaltyAmount(BigDecimal amount) { this.lateReturnPenaltyAmount = amount; }
 
     Instant getReservedUntil() { return reservedUntil; }
     void setReservedUntil(Instant reservedUntil) { this.reservedUntil = reservedUntil; }

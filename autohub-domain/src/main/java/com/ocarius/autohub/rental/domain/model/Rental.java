@@ -1,6 +1,7 @@
 package com.ocarius.autohub.rental.domain.model;
 
-import com.ocarius.autohub.fleet.domain.model.VehicleId;
+import com.ocarius.autohub.shared.domain.VehicleId;
+import com.ocarius.autohub.rental.domain.event.LateReturnPenaltyApplied;
 import com.ocarius.autohub.rental.domain.event.RentalCancelled;
 import com.ocarius.autohub.rental.domain.event.RentalConfirmed;
 import com.ocarius.autohub.rental.domain.event.RentalExpired;
@@ -12,6 +13,7 @@ import com.ocarius.autohub.shared.domain.AggregateRoot;
 import com.ocarius.autohub.shared.domain.BusinessRuleViolation;
 import com.ocarius.autohub.shared.domain.vo.Money;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -30,9 +32,10 @@ import java.util.UUID;
  *       contenu. Charger une location ne charge pas un vehicule, et une location
  *       ne peut pas modifier un vehicule : chaque agregat est sa propre
  *       transaction.</li>
- *   <li><b>Le prix est fige a la creation</b> ({@link #quotedPrice()}). Un
- *       changement de grille tarifaire ne doit pas modifier le prix d'une
- *       location deja engagee : le client a accepte un montant, pas une formule.</li>
+ *   <li><b>Le devis est fige a la creation</b> ({@link RentalQuote} : tarif
+ *       journalier et total). Un changement de grille tarifaire ne doit pas
+ *       modifier le prix d'une location deja engagee : le client a accepte un
+ *       montant, pas une formule.</li>
  *   <li><b>Les etats des lieux</b> ({@link VehicleHandover}) sont des value
  *       objects internes.</li>
  * </ul>
@@ -51,6 +54,8 @@ import java.util.UUID;
  *   <li>Une reservation ne peut pas etre confirmee apres son echeance.</li>
  *   <li>Le depart a lieu pendant la periode louee.</li>
  *   <li>Au retour, le compteur ne recule pas et la date ne precede pas le depart.</li>
+ *   <li>Un retour tardif entraine une penalite ; un retour anticipe ne donne
+ *       lieu a aucun remboursement (voir {@link #returnVehicle}).</li>
  *   <li>Les donnees propres a un etat ({@code reservedUntil}, etats des lieux)
  *       sont presentes si et seulement si l'etat les justifie.</li>
  * </ol>
@@ -65,10 +70,13 @@ public final class Rental extends AggregateRoot<RentalId> {
     /** Duree de validite d'une reservation non confirmee (roadmap §3.3). */
     public static final Duration RESERVATION_TTL = Duration.ofMinutes(30);
 
+    /** Chaque jour de retard entame coute 150 % du tarif journalier. */
+    public static final BigDecimal LATE_RETURN_PENALTY_RATE = new BigDecimal("1.5");
+
     private final VehicleId vehicleId;
     private final CustomerId customerId;
     private final RentalPeriod period;
-    private final Money quotedPrice;
+    private final RentalQuote quote;
 
     private RentalStatus status;
     /** Echeance de la reservation. Non null si et seulement si {@code status == RESERVED}. */
@@ -77,23 +85,22 @@ public final class Rental extends AggregateRoot<RentalId> {
     private VehicleHandover pickup;
     /** Etat des lieux au retour. Non null a partir de {@code RETURNED}. */
     private VehicleHandover dropoff;
+    /** Penalite de retard. Nulle tant que le vehicule n'est pas revenu, ou s'il est revenu a l'heure. */
+    private Money lateReturnPenalty;
 
     private Rental(RentalId id, VehicleId vehicleId, CustomerId customerId, RentalPeriod period,
-                   Money quotedPrice, RentalStatus status, Instant reservedUntil,
-                   VehicleHandover pickup, VehicleHandover dropoff) {
+                   RentalQuote quote, RentalStatus status, Instant reservedUntil,
+                   VehicleHandover pickup, VehicleHandover dropoff, Money lateReturnPenalty) {
         super(id);
         this.vehicleId = Objects.requireNonNull(vehicleId, "Le vehicule est obligatoire");
         this.customerId = Objects.requireNonNull(customerId, "Le client est obligatoire");
         this.period = Objects.requireNonNull(period, "La periode est obligatoire");
-        this.quotedPrice = Objects.requireNonNull(quotedPrice, "Le prix est obligatoire");
+        this.quote = Objects.requireNonNull(quote, "Le devis est obligatoire");
         this.status = Objects.requireNonNull(status, "Le statut est obligatoire");
         this.reservedUntil = reservedUntil;
         this.pickup = pickup;
         this.dropoff = dropoff;
-        BusinessRuleViolation.check(
-                quotedPrice.isPositive(),
-                "RENTAL_PRICE_NOT_POSITIVE",
-                "Le prix d'une location doit etre strictement positif : " + quotedPrice);
+        this.lateReturnPenalty = Objects.requireNonNull(lateReturnPenalty, "La penalite est obligatoire (zero par defaut)");
     }
 
     // =================================================================
@@ -108,12 +115,12 @@ public final class Rental extends AggregateRoot<RentalId> {
      * @param vehicleId   vehicule demande
      * @param customerId  client
      * @param period      periode demandee
-     * @param quotedPrice prix calcule par la tarification, fige des maintenant
+     * @param quote       devis calcule par la tarification, fige des maintenant
      */
     public static Rental draft(RentalId id, VehicleId vehicleId, CustomerId customerId,
-                               RentalPeriod period, Money quotedPrice) {
-        return new Rental(id, vehicleId, customerId, period, quotedPrice,
-                RentalStatus.DRAFT, null, null, null);
+                               RentalPeriod period, RentalQuote quote) {
+        return new Rental(id, vehicleId, customerId, period, quote,
+                RentalStatus.DRAFT, null, null, null, Money.zero(quote.total().currency()));
     }
 
     /**
@@ -137,10 +144,11 @@ public final class Rental extends AggregateRoot<RentalId> {
      * @throws IllegalStateException si les donnees ne sont pas coherentes avec l'etat
      */
     public static Rental restore(RentalId id, VehicleId vehicleId, CustomerId customerId,
-                                 RentalPeriod period, Money quotedPrice, RentalStatus status,
-                                 Instant reservedUntil, VehicleHandover pickup, VehicleHandover dropoff) {
-        Rental rental = new Rental(id, vehicleId, customerId, period, quotedPrice,
-                status, reservedUntil, pickup, dropoff);
+                                 RentalPeriod period, RentalQuote quote, RentalStatus status,
+                                 Instant reservedUntil, VehicleHandover pickup, VehicleHandover dropoff,
+                                 Money lateReturnPenalty) {
+        Rental rental = new Rental(id, vehicleId, customerId, period, quote,
+                status, reservedUntil, pickup, dropoff, lateReturnPenalty);
         rental.checkStateConsistency();
         return rental;
     }
@@ -252,10 +260,19 @@ public final class Rental extends AggregateRoot<RentalId> {
     /**
      * Enregistre le retour du vehicule.
      *
-     * <p>Un retour anticipe est accepte et ne change pas le prix fige. Un retour
-     * tardif est accepte aussi (on ne refuse pas une voiture au guichet) ; il est
-     * signale par {@link #isLateReturn()} et les penalites seront calculees par
-     * la tarification au week-end 9.
+     * <h3>Retour anticipe : aucun remboursement (decision metier)</h3>
+     * Le vehicule a ete bloque pour le client sur toute la periode, et l'agence
+     * n'a pas pu le louer a quelqu'un d'autre. Le prix fige reste du en
+     * entier. La location cesse en revanche de bloquer le vehicule des le
+     * retour : il peut etre reloue immediatement.
+     *
+     * <h3>Retour tardif : penalite</h3>
+     * Accepte (on ne refuse pas une voiture au guichet), mais chaque jour de
+     * retard <i>entame</i> coute {@link #LATE_RETURN_PENALTY_RATE} fois le tarif
+     * journalier fige. Une minute de retard coute donc un jour de penalite :
+     * aucune tolerance n'est accordee aujourd'hui (une franchise est au
+     * {@code BACKLOG.md}). La penalite est une regle de retour, pas une
+     * politique de prix : elle ne se calcule qu'une fois le retour constate.
      *
      * @param handover etat des lieux au retour
      * @throws IllegalRentalTransitionException si le vehicule n'est pas parti
@@ -274,9 +291,14 @@ public final class Rental extends AggregateRoot<RentalId> {
                 "RENTAL_RETURN_BEFORE_PICKUP",
                 "Le retour (" + handover.at() + ") ne peut pas preceder le depart (" + pickup.at() + ")");
         this.dropoff = handover;
+        this.lateReturnPenalty = penaltyFor(handover);
         this.status = RentalStatus.RETURNED;
-        registerEvent(new VehicleReturned(UUID.randomUUID(), clock.instant(), id(), vehicleId,
+        Instant now = clock.instant();
+        registerEvent(new VehicleReturned(UUID.randomUUID(), now, id(), vehicleId,
                 handover.at(), handover.mileageKm(), isLateReturn()));
+        if (lateReturnPenalty.isPositive()) {
+            registerEvent(new LateReturnPenaltyApplied(UUID.randomUUID(), now, id(), vehicleId, lateReturnPenalty));
+        }
     }
 
     /**
@@ -329,8 +351,24 @@ public final class Rental extends AggregateRoot<RentalId> {
         return period;
     }
 
+    /** Prix total de la periode prevue, fige a la creation. */
     public Money quotedPrice() {
-        return quotedPrice;
+        return quote.total();
+    }
+
+    /** Tarif journalier fige a la creation. */
+    public Money dailyRate() {
+        return quote.dailyRate();
+    }
+
+    /** Penalite de retard : zero tant que le vehicule n'est pas revenu en retard. */
+    public Money lateReturnPenalty() {
+        return lateReturnPenalty;
+    }
+
+    /** Montant total du par le client : prix fige plus penalite eventuelle. */
+    public Money totalDue() {
+        return quote.total().plus(lateReturnPenalty);
     }
 
     public RentalStatus status() {
@@ -363,6 +401,20 @@ public final class Rental extends AggregateRoot<RentalId> {
         }
     }
 
+    /**
+     * Penalite pour un retour constate : zero si le vehicule revient au plus
+     * tard a la fin prevue, sinon {@link #LATE_RETURN_PENALTY_RATE} x tarif
+     * journalier par jour de retard entame.
+     */
+    private Money penaltyFor(VehicleHandover returned) {
+        if (!period.endsBefore(returned.at())) {
+            return Money.zero(quote.total().currency());
+        }
+        Duration late = Duration.between(period.end(), returned.at());
+        long startedDays = late.toDays() + (late.minusDays(late.toDays()).isZero() ? 0 : 1);
+        return quote.dailyRate().times(LATE_RETURN_PENALTY_RATE).times(startedDays);
+    }
+
     /** Echeance semi-ouverte : la reservation est valide sur {@code [reservation, reservedUntil)}. */
     private boolean isReservationOverdueAt(Instant now) {
         return !now.isBefore(reservedUntil);
@@ -381,6 +433,8 @@ public final class Rental extends AggregateRoot<RentalId> {
         requireConsistent((reservedUntil != null) == (status == RentalStatus.RESERVED), "reservedUntil");
         requireConsistent((pickup != null) == hasPickupState, "pickup");
         requireConsistent((dropoff != null) == hasDropoffState, "dropoff");
+        requireConsistent(!lateReturnPenalty.isNegative()
+                && (lateReturnPenalty.isZero() || dropoff != null), "lateReturnPenalty");
     }
 
     private void requireConsistent(boolean consistent, String field) {

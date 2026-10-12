@@ -5,6 +5,8 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
+import static com.tngtech.archunit.base.DescribedPredicate.not;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -112,6 +114,39 @@ class HexagonalArchitectureTest {
             .should().dependOnClassesThat().resideInAPackage("..rental..")
             .allowEmptyShould(true)
             .because("c'est ce qui rendra la greffe de la vente indolore au WE 10-11");
+
+    // Ajoutees au WE7, AVANT d'ecrire la mise a jour du kilometrage au retour
+    // (ADR 0004) : la tentation d'appeler VehicleRepository depuis rental
+    // arrive exactement a ce moment-la. La barriere est posee avant.
+    @ArchTest
+    static final ArchRule rental_ne_depend_pas_de_fleet = noClasses()
+            .that().resideInAPackage("..rental..")
+            .should().dependOnClassesThat().resideInAPackage("..fleet..")
+            .because("rental ne connait d'un vehicule que son VehicleId (shared kernel) et sa vue "
+                    + "VehicleCatalog ; le kilometrage voyage par evenement (ADR 0004)");
+
+    // Le seul passage autorise de fleet vers rental : les evenements publies par
+    // rental, qui sont un contrat. En microservices, ce serait le schema d'un
+    // message ; ici, une classe du paquet rental.domain.event.
+    @ArchTest
+    static final ArchRule fleet_ne_connait_de_rental_que_ses_evenements = noClasses()
+            .that().resideInAPackage("..fleet..")
+            .should().dependOnClassesThat(
+                    resideInAPackage("..rental..").and(not(resideInAPackage("..rental.domain.event.."))))
+            .because("fleet reagit aux evenements de rental, il n'appelle jamais son code (ADR 0004)");
+
+    // =================================================================
+    // REGLE 4 bis : les controleurs ne voient que des ports
+    // =================================================================
+    // Ajoutee au WE6 avec la couche REST. Un controleur qui importe le domaine
+    // finit par construire un agregat lui-meme, ou par le renvoyer en JSON ; un
+    // controleur qui importe un service contourne l'interface et se lie a une
+    // implementation.
+    @ArchTest
+    static final ArchRule les_controleurs_ne_connaissent_que_les_ports = noClasses()
+            .that().resideInAPackage("..infrastructure.in.rest..")
+            .should().dependOnClassesThat().resideInAnyPackage("..domain..", "..application.service..")
+            .because("un controleur traduit HTTP en appel de port entrant, rien de plus");
 
     // =================================================================
     // REGLE 5 : vue d'ensemble en couches

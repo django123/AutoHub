@@ -65,6 +65,15 @@ autohub:
     # domaine sont nominales a l'agence (ADR 0002). Le changer ne convertit
     # pas les heures deja stockees.
     time-zone: ${AUTOHUB_AGENCY_TIME_ZONE:Europe/Paris}
+  rental:
+    expiry:
+      # Traitement planifie d'expiration des reservations non confirmees
+      # (ReservationExpiryScheduler). Il ne conditionne PAS la liberation
+      # d'un creneau : la reservation suivante expire elle-meme les
+      # reservations echues qui la genent. Il fait passer les statuts a
+      # EXPIRED et publie RentalExpired. Les tests d'integration le coupent.
+      enabled: true
+      interval: PT1M
 
 management:
   endpoints:

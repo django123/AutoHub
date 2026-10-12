@@ -1,6 +1,7 @@
 package com.ocarius.autohub.rental.domain.model;
 
-import com.ocarius.autohub.fleet.domain.model.VehicleId;
+import com.ocarius.autohub.shared.domain.VehicleId;
+import com.ocarius.autohub.rental.domain.event.LateReturnPenaltyApplied;
 import com.ocarius.autohub.rental.domain.event.RentalCancelled;
 import com.ocarius.autohub.rental.domain.event.RentalConfirmed;
 import com.ocarius.autohub.rental.domain.event.RentalExpired;
@@ -41,13 +42,15 @@ class RentalTest {
     private static final LocalDateTime START = LocalDateTime.of(2027, 3, 8, 8, 0);
     private static final LocalDateTime END = LocalDateTime.of(2027, 3, 10, 8, 0);
     private static final RentalPeriod PERIOD = RentalPeriod.of(START, END);
+    private static final Money DAILY_RATE = Money.euros("90.00");
     private static final Money PRICE = Money.euros("180.00");
+    private static final RentalQuote QUOTE = RentalQuote.of(DAILY_RATE, PRICE);
 
     private Rental rental;
 
     @BeforeEach
     void setUp() {
-        rental = Rental.draft(RentalId.newId(), VehicleId.newId(), CustomerId.newId(), PERIOD, PRICE);
+        rental = Rental.draft(RentalId.newId(), VehicleId.newId(), CustomerId.newId(), PERIOD, QUOTE);
     }
 
     /** Horloge decalee de {@code offset} par rapport a {@link #NOW}. */
@@ -92,8 +95,8 @@ class RentalTest {
         @Test
         @DisplayName("un prix nul est refuse")
         void prix_nul_refuse() {
-            assertThatThrownBy(() -> Rental.draft(RentalId.newId(), VehicleId.newId(), CustomerId.newId(),
-                    PERIOD, Money.zeroEuros()))
+            // Verifie par RentalQuote : impossible de tenir en main un devis a zero.
+            assertThatThrownBy(() -> RentalQuote.of(DAILY_RATE, Money.zeroEuros()))
                     .satisfies(e -> assertThat(codeOf(e)).isEqualTo("RENTAL_PRICE_NOT_POSITIVE"));
         }
     }
@@ -335,6 +338,7 @@ class RentalTest {
             assertThat(rental.status()).isEqualTo(RentalStatus.RETURNED);
             assertThat(rental.isLateReturn()).isFalse();
             assertThat(rental.quotedPrice()).isEqualTo(PRICE);
+            assertThat(rental.totalDue()).as("aucun remboursement").isEqualTo(PRICE);
             assertThat(rental.blocksVehicle()).isFalse();
         }
 
@@ -351,7 +355,8 @@ class RentalTest {
             rental.returnVehicle(handover(END.plusMinutes(1), 10_100), CLOCK);
 
             assertThat(rental.isLateReturn()).isTrue();
-            assertThat(rental.peekDomainEvents()).singleElement()
+            // Deux evenements : le retour, puis la penalite (voir une_minute_de_retard).
+            assertThat(rental.peekDomainEvents()).hasSize(2).first()
                     .isInstanceOfSatisfying(VehicleReturned.class, e -> assertThat(e.late()).isTrue());
         }
 
@@ -375,6 +380,50 @@ class RentalTest {
         void retour_avant_depart() {
             assertThatThrownBy(() -> rental.returnVehicle(handover(START.minusMinutes(1), 10_100), CLOCK))
                     .satisfies(e -> assertThat(codeOf(e)).isEqualTo("RENTAL_RETURN_BEFORE_PICKUP"));
+        }
+
+        @Test
+        @DisplayName("un retour a l'heure n'a pas de penalite : le total du est le prix fige")
+        void pas_de_penalite_a_l_heure() {
+            rental.returnVehicle(handover(END, 10_100), CLOCK);
+
+            assertThat(rental.lateReturnPenalty()).isEqualTo(Money.zeroEuros());
+            assertThat(rental.totalDue()).isEqualTo(PRICE);
+            assertThat(rental.peekDomainEvents()).noneMatch(LateReturnPenaltyApplied.class::isInstance);
+        }
+
+        @Test
+        @DisplayName("* une minute de retard coute un jour de penalite a 150 % du tarif")
+        void une_minute_de_retard() {
+            rental.returnVehicle(handover(END.plusMinutes(1), 10_100), CLOCK);
+
+            assertThat(rental.lateReturnPenalty()).isEqualTo(Money.euros("135.00"));   // 90 x 1,5
+            assertThat(rental.totalDue()).isEqualTo(Money.euros("315.00"));
+            assertThat(rental.peekDomainEvents()).filteredOn(LateReturnPenaltyApplied.class::isInstance)
+                    .singleElement()
+                    .isInstanceOfSatisfying(LateReturnPenaltyApplied.class,
+                            e -> assertThat(e.penalty()).isEqualTo(Money.euros("135.00")));
+        }
+
+        @Test
+        @DisplayName("* 24 h pile de retard font un jour, 24 h et une minute en font deux")
+        void jours_de_retard_entames() {
+            Rental exactementUnJour = Rental.restore(RentalId.newId(), VehicleId.newId(), CustomerId.newId(),
+                    PERIOD, QUOTE, RentalStatus.PICKED_UP, null, handover(START, 10_000), null, Money.zeroEuros());
+            exactementUnJour.returnVehicle(handover(END.plusDays(1), 10_100), CLOCK);
+            assertThat(exactementUnJour.lateReturnPenalty()).isEqualTo(Money.euros("135.00"));
+
+            rental.returnVehicle(handover(END.plusDays(1).plusMinutes(1), 10_100), CLOCK);
+            assertThat(rental.lateReturnPenalty()).isEqualTo(Money.euros("270.00"));
+        }
+
+        @Test
+        @DisplayName("* la penalite utilise le tarif fige, pas un tarif courant")
+        void penalite_sur_tarif_fige() {
+            // Le tarif est dans le devis de la location : rien, en dehors de
+            // l'agregat, ne peut le modifier entre la reservation et le retour.
+            rental.returnVehicle(handover(END.plusHours(2), 10_100), CLOCK);
+            assertThat(rental.lateReturnPenalty()).isEqualTo(DAILY_RATE.times(Rental.LATE_RETURN_PENALTY_RATE));
         }
 
         @Test
@@ -402,7 +451,7 @@ class RentalTest {
             RentalPeriod passee = RentalPeriod.of(LocalDateTime.of(2020, 1, 1, 8, 0), LocalDateTime.of(2020, 1, 3, 8, 0));
 
             Rental restored = Rental.restore(RentalId.newId(), VehicleId.newId(), CustomerId.newId(),
-                    passee, PRICE, RentalStatus.CONFIRMED, null, null, null);
+                    passee, QUOTE, RentalStatus.CONFIRMED, null, null, null, Money.zeroEuros());
 
             assertThat(restored.status()).isEqualTo(RentalStatus.CONFIRMED);
             assertThat(restored.peekDomainEvents()).as("rien ne vient de se produire").isEmpty();
@@ -412,7 +461,7 @@ class RentalTest {
         @DisplayName("* une location PICKED_UP sans etat des lieux de depart est rejetee")
         void incoherence_depart_manquant() {
             assertThatThrownBy(() -> Rental.restore(RentalId.newId(), VehicleId.newId(), CustomerId.newId(),
-                    PERIOD, PRICE, RentalStatus.PICKED_UP, null, null, null))
+                    PERIOD, QUOTE, RentalStatus.PICKED_UP, null, null, null, Money.zeroEuros()))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("pickup");
         }
@@ -421,16 +470,26 @@ class RentalTest {
         @DisplayName("* une location RESERVED sans echeance est rejetee")
         void incoherence_echeance_manquante() {
             assertThatThrownBy(() -> Rental.restore(RentalId.newId(), VehicleId.newId(), CustomerId.newId(),
-                    PERIOD, PRICE, RentalStatus.RESERVED, null, null, null))
+                    PERIOD, QUOTE, RentalStatus.RESERVED, null, null, null, Money.zeroEuros()))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("reservedUntil");
+        }
+
+        @Test
+        @DisplayName("* une penalite sans etat des lieux de retour est rejetee")
+        void incoherence_penalite_sans_retour() {
+            assertThatThrownBy(() -> Rental.restore(RentalId.newId(), VehicleId.newId(), CustomerId.newId(),
+                    PERIOD, QUOTE, RentalStatus.CONFIRMED, null, null, null, Money.euros("10.00")))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("lateReturnPenalty");
         }
 
         @Test
         @DisplayName("deux instances de meme identifiant sont egales, quel que soit leur etat")
         void egalite_par_identite() {
             Rental copie = Rental.restore(rental.id(), VehicleId.newId(), CustomerId.newId(),
-                    PERIOD, Money.euros("999.00"), RentalStatus.CANCELLED, null, null, null);
+                    PERIOD, RentalQuote.of(DAILY_RATE, Money.euros("999.00")), RentalStatus.CANCELLED,
+                    null, null, null, Money.zeroEuros());
             assertThat(copie).isEqualTo(rental);
         }
     }

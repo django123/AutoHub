@@ -4,6 +4,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -32,4 +35,35 @@ interface RentalJpaRepository extends JpaRepository<RentalJpaEntity, UUID> {
      */
     @Query(value = "SELECT true FROM pg_advisory_xact_lock(:key)", nativeQuery = true)
     Boolean acquireTransactionLock(@Param("key") long key);
+
+    /**
+     * Reservations echues d'un vehicule qui chevauchent une periode.
+     *
+     * <p>Requete native : l'operateur {@code &&} sur la colonne generee
+     * {@code period} n'existe pas en JPQL, et c'est lui qui permet a
+     * PostgreSQL d'utiliser l'index GiST de {@code rental_no_overlap}.
+     */
+    @Query(value = """
+            SELECT r.* FROM rental r
+             WHERE r.vehicle_id = :vehicleId
+               AND r.status = 'RESERVED'
+               AND r.reserved_until <= CAST(:now AS timestamptz)
+               AND r.period && tsrange(CAST(:start AS timestamp), CAST(:end AS timestamp), '[)')
+            """, nativeQuery = true)
+    List<RentalJpaEntity> findOverdueReservationsOverlapping(@Param("vehicleId") UUID vehicleId,
+                                                             @Param("start") LocalDateTime start,
+                                                             @Param("end") LocalDateTime end,
+                                                             @Param("now") Instant now);
+
+    /**
+     * Identifiants des reservations echues, les plus anciennes d'abord. Servie
+     * par l'index partiel {@code rental_overdue_reservation_idx} (V3).
+     */
+    @Query(value = """
+            SELECT r.id FROM rental r
+             WHERE r.status = 'RESERVED' AND r.reserved_until <= CAST(:now AS timestamptz)
+             ORDER BY r.reserved_until
+             LIMIT :limit
+            """, nativeQuery = true)
+    List<UUID> findOverdueReservationIds(@Param("now") Instant now, @Param("limit") int limit);
 }

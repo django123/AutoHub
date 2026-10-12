@@ -1,6 +1,6 @@
 package com.ocarius.autohub.rental.domain.exception;
 
-import com.ocarius.autohub.fleet.domain.model.VehicleId;
+import com.ocarius.autohub.shared.domain.VehicleId;
 import com.ocarius.autohub.rental.domain.model.RentalPeriod;
 import com.ocarius.autohub.shared.domain.ConflictException;
 

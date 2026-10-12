@@ -107,6 +107,21 @@
             </plugins>
         </pluginManagement>
         <plugins>
+            <!--
+              -parameters : conserve le nom des parametres dans le bytecode.
+              Spring MVC en a besoin pour lier @PathVariable UUID id sans
+              repeter le nom ("id") dans l'annotation. spring-boot-starter-parent
+              active ce flag d'office ; ce projet n'heritant que du BOM (voir plus
+              haut), il faut le demander. Decouvert au WE6 : chaque route a
+              variable de chemin repondait 500.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <parameters>true</parameters>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

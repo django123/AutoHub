@@ -2,6 +2,7 @@ package com.ocarius.autohub.shared.infrastructure.error;
 
 import com.ocarius.autohub.shared.domain.ConflictException;
 import com.ocarius.autohub.shared.domain.DomainException;
+import com.ocarius.autohub.shared.domain.NotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -18,9 +19,10 @@ import java.time.Instant;
  *
  * <h2>Pourquoi cette classe est ici et pas dans le domaine</h2>
  * Le domaine ignore HTTP. Il leve {@code DomainException} avec un code metier,
- * et distingue seulement deux categories : demande invalide, ou demande en
- * conflit avec l'etat actuel ({@link ConflictException}). C'est
- * <b>l'adaptateur</b> qui decide que cela vaut un 422 ou un 409. Si demain
+ * et distingue seulement trois categories : demande invalide, demande en
+ * conflit avec l'etat actuel ({@link ConflictException}), ressource
+ * introuvable ({@link NotFoundException}). C'est <b>l'adaptateur</b> qui
+ * decide que cela vaut un 422, un 409 ou un 404. Si demain
  * on expose le meme cas d'usage via gRPC ou un consumer Kafka, un autre
  * adaptateur fera une autre traduction, sans que le metier ne bouge.
  *
@@ -79,6 +81,20 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ProblemDetail handleConflict(ConflictException exception) {
         log.warn("Conflit avec l'etat actuel [{}] : {}", exception.code(), exception.getMessage());
         return toProblem(HttpStatus.CONFLICT, "Conflit avec l'etat actuel", exception);
+    }
+
+    /**
+     * 404 NOT FOUND : la demande designe une ressource qui n'existe pas
+     * (location, vehicule). Meme mecanisme que les conflits : il suffit
+     * d'heriter de {@link NotFoundException}.
+     *
+     * <p>Niveau INFO : un identifiant inconnu est un cas courant (lien
+     * perime, faute de frappe), pas un signe de regle metier contournee.
+     */
+    @ExceptionHandler(NotFoundException.class)
+    public ProblemDetail handleNotFound(NotFoundException exception) {
+        log.info("Ressource introuvable [{}] : {}", exception.code(), exception.getMessage());
+        return toProblem(HttpStatus.NOT_FOUND, "Ressource introuvable", exception);
     }
 
     /** Construit la reponse RFC 9457 commune a toutes les exceptions du domaine. */

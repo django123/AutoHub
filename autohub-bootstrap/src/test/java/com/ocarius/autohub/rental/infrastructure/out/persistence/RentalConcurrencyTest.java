@@ -1,12 +1,14 @@
 package com.ocarius.autohub.rental.infrastructure.out.persistence;
 
-import com.ocarius.autohub.fleet.domain.model.VehicleId;
+import com.ocarius.autohub.shared.domain.VehicleId;
 import com.ocarius.autohub.rental.application.port.out.RentalRepository;
+import com.ocarius.autohub.testing.AbstractPostgresIntegrationTest;
 import com.ocarius.autohub.rental.domain.exception.VehicleNotAvailableException;
 import com.ocarius.autohub.rental.domain.model.CustomerId;
 import com.ocarius.autohub.rental.domain.model.Rental;
 import com.ocarius.autohub.rental.domain.model.RentalId;
 import com.ocarius.autohub.rental.domain.model.RentalPeriod;
+import com.ocarius.autohub.rental.domain.model.RentalQuote;
 import com.ocarius.autohub.shared.domain.vo.Money;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -98,7 +100,7 @@ class RentalConcurrencyTest extends AbstractPostgresIntegrationTest {
                     // Chaque client prepare sa location AVANT le top depart :
                     // seule l'ecriture en base doit etre concurrente.
                     Rental rental = Rental.draft(RentalId.newId(), vehicle, CustomerId.newId(),
-                            period, Money.euros("200.00"));
+                            period, RentalQuote.of(Money.euros("100.00"), Money.euros("200.00")));
                     rental.reserve(CLOCK);
                     ready.countDown();
                     try {

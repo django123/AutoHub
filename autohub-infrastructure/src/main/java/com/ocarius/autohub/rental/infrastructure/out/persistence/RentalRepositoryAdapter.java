@@ -5,6 +5,8 @@ import com.ocarius.autohub.rental.domain.exception.ConcurrentRentalModificationE
 import com.ocarius.autohub.rental.domain.exception.VehicleNotAvailableException;
 import com.ocarius.autohub.rental.domain.model.Rental;
 import com.ocarius.autohub.rental.domain.model.RentalId;
+import com.ocarius.autohub.rental.domain.model.RentalPeriod;
+import com.ocarius.autohub.shared.domain.VehicleId;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -13,6 +15,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.SQLException;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -131,6 +135,21 @@ class RentalRepositoryAdapter implements RentalRepository {
             }
             throw e;
         }
+    }
+
+    /** {@inheritDoc} Requete native servie par l'index GiST de la contrainte d'exclusion. */
+    @Override
+    @Transactional(readOnly = true)
+    public List<Rental> findOverdueReservationsOverlapping(VehicleId vehicleId, RentalPeriod period, Instant now) {
+        return jpaRepository.findOverdueReservationsOverlapping(vehicleId.value(), period.start(), period.end(), now)
+                .stream().map(RentalMapper::toDomain).toList();
+    }
+
+    /** {@inheritDoc} Requete servie par l'index partiel {@code rental_overdue_reservation_idx}. */
+    @Override
+    @Transactional(readOnly = true)
+    public List<RentalId> findOverdueReservationIds(Instant now, int limit) {
+        return jpaRepository.findOverdueReservationIds(now, limit).stream().map(RentalId::of).toList();
     }
 
     /**

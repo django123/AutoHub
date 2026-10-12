@@ -1,13 +1,15 @@
 package com.ocarius.autohub.rental.infrastructure.out.persistence;
 
-import com.ocarius.autohub.fleet.domain.model.VehicleId;
+import com.ocarius.autohub.shared.domain.VehicleId;
 import com.ocarius.autohub.rental.application.port.out.RentalRepository;
+import com.ocarius.autohub.testing.AbstractPostgresIntegrationTest;
 import com.ocarius.autohub.rental.domain.exception.ConcurrentRentalModificationException;
 import com.ocarius.autohub.rental.domain.exception.VehicleNotAvailableException;
 import com.ocarius.autohub.rental.domain.model.CustomerId;
 import com.ocarius.autohub.rental.domain.model.Rental;
 import com.ocarius.autohub.rental.domain.model.RentalId;
 import com.ocarius.autohub.rental.domain.model.RentalPeriod;
+import com.ocarius.autohub.rental.domain.model.RentalQuote;
 import com.ocarius.autohub.rental.domain.model.RentalStatus;
 import com.ocarius.autohub.rental.domain.model.VehicleHandover;
 import com.ocarius.autohub.shared.domain.vo.Money;
@@ -52,7 +54,7 @@ class RentalRepositoryAdapterTest extends AbstractPostgresIntegrationTest {
 
     /** Cree et reserve une location ; ne la sauvegarde pas. */
     private static Rental reserved(VehicleId vehicleId, RentalPeriod period) {
-        Rental rental = Rental.draft(RentalId.newId(), vehicleId, CustomerId.newId(), period, Money.euros("120.00"));
+        Rental rental = Rental.draft(RentalId.newId(), vehicleId, CustomerId.newId(), period, RentalQuote.of(Money.euros("60.00"), Money.euros("120.00")));
         rental.reserve(CLOCK);
         return rental;
     }
